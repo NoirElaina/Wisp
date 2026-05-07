@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "wisp",
+  "productName": "Wisp",
   "version": "0.1.0",
   "identifier": "com.tauri-app.wisp",
   "build": {
@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "wisp",
-        "width": 800,
-        "height": 600
+        "title": "Wisp",
+        "width": 1440,
+        "height": 960,
+        "minWidth": 1200,
+        "minHeight": 760
       }
     ],
     "security": {
