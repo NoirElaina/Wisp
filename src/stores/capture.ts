@@ -220,17 +220,16 @@ async function attachListeners() {
       return;
     }
 
-    if (await shouldIncludeLivePacket(packet)) {
-      if (!state.running || state.activeSession?.id !== activeSessionId) {
-        return;
-      }
-
+    if (!hasActiveFilter(snapshotFilter())) {
       prependPacket(packet);
 
       if (!state.selectedPacketId) {
         await selectFirstPacket(packet.id);
       }
+      return;
     }
+
+    schedulePacketRefresh();
   });
 
   const statsUnlisten = await listen<CaptureStats>("capture:stats", (event) => {
@@ -262,24 +261,6 @@ async function attachListeners() {
 
   unlisteners = [packetUnlisten, statsUnlisten, stateUnlisten, errorUnlisten];
   listenersReady = true;
-}
-
-async function shouldIncludeLivePacket(packet: PacketSummary): Promise<boolean> {
-  const filter = snapshotFilter();
-  if (!hasActiveFilter(filter)) {
-    return true;
-  }
-
-  const sessionId = state.activeSession?.id;
-  if (!sessionId) {
-    return false;
-  }
-
-  const detail = await invoke<PacketDetail>("get_packet_detail", {
-    sessionId,
-    packetId: packet.id,
-  });
-  return matchesDetail(detail, filter);
 }
 
 async function refreshPacketView(options?: {
@@ -389,113 +370,6 @@ function hasActiveFilter(filter: FilterState): boolean {
     Boolean(filter.query) ||
     filter.only_malformed
   );
-}
-
-function matchesDetail(detail: PacketDetail, filter: FilterState): boolean {
-  if (filter.protocols.length > 0 && !filter.protocols.includes(detail.summary.protocol)) {
-    return false;
-  }
-
-  if (filter.ip) {
-    const ip = filter.ip.trim().toLowerCase();
-    if (
-      ip &&
-      !detail.summary.src.toLowerCase().includes(ip) &&
-      !detail.summary.dst.toLowerCase().includes(ip)
-    ) {
-      return false;
-    }
-  }
-
-  if (filter.port !== null) {
-    const matched =
-      detail.transport && "tcp" in detail.transport
-        ? detail.transport.tcp.src_port === filter.port || detail.transport.tcp.dst_port === filter.port
-        : detail.transport && "udp" in detail.transport
-          ? detail.transport.udp.src_port === filter.port || detail.transport.udp.dst_port === filter.port
-          : false;
-
-    if (!matched) {
-      return false;
-    }
-  }
-
-  if (filter.only_malformed && !detail.is_malformed) {
-    return false;
-  }
-
-  if (filter.query) {
-    const needle = filter.query.trim().toLowerCase();
-    if (needle) {
-      const corpus = buildQueryCorpus(detail);
-      if (!corpus.some((value) => value.includes(needle))) {
-        return false;
-      }
-    }
-  }
-
-  return true;
-}
-
-function buildQueryCorpus(detail: PacketDetail): string[] {
-  const corpus = [
-    detail.summary.info.toLowerCase(),
-    detail.raw.ascii_preview.toLowerCase(),
-  ];
-
-  if (detail.application) {
-    if ("http" in detail.application) {
-      corpus.push(detail.application.http.start_line.toLowerCase());
-      corpus.push(detail.application.http.raw_text.toLowerCase());
-    } else if ("tls" in detail.application) {
-      corpus.push(detail.application.tls.content_type.toLowerCase());
-      corpus.push(detail.application.tls.version.toLowerCase());
-      if (detail.application.tls.handshake_type) {
-        corpus.push(detail.application.tls.handshake_type.toLowerCase());
-      }
-      if (detail.application.tls.server_name) {
-        corpus.push(detail.application.tls.server_name.toLowerCase());
-      }
-      if (detail.application.tls.cipher_suite) {
-        corpus.push(detail.application.tls.cipher_suite.toLowerCase());
-      }
-      corpus.push(...detail.application.tls.alpn_protocols.map((item) => item.toLowerCase()));
-    } else if ("dns" in detail.application) {
-      corpus.push(
-        ...detail.application.dns.questions.flatMap((question) => [
-          question.name.toLowerCase(),
-          question.qtype.toLowerCase(),
-        ]),
-      );
-      corpus.push(
-        ...detail.application.dns.answers.flatMap((answer) => [
-          answer.name.toLowerCase(),
-          answer.rtype.toLowerCase(),
-          answer.data.toLowerCase(),
-        ]),
-      );
-    } else if ("quic" in detail.application) {
-      corpus.push(detail.application.quic.packet_type.toLowerCase());
-      corpus.push(detail.application.quic.version.toLowerCase());
-      corpus.push(detail.application.quic.dcid.toLowerCase());
-      corpus.push(detail.application.quic.scid.toLowerCase());
-    } else if ("unknown" in detail.application) {
-      corpus.push(detail.application.unknown.preview.toLowerCase());
-    }
-  }
-
-  if (detail.icmp) {
-    corpus.push(detail.icmp.description.toLowerCase());
-  }
-
-  if (detail.icmpv6) {
-    corpus.push(detail.icmpv6.description.toLowerCase());
-    if (detail.icmpv6.target_address) {
-      corpus.push(detail.icmpv6.target_address.toLowerCase());
-    }
-  }
-
-  return corpus;
 }
 
 function emptyStats(): CaptureStats {
