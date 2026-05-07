@@ -57,9 +57,68 @@ fn matches_all(detail: &PacketDetail, filter: &FilterState) -> bool {
                 detail.raw.ascii_preview.to_ascii_lowercase(),
             ];
 
-            if let Some(ApplicationPacket::Http(http)) = detail.application.as_ref() {
-                corpus.push(http.start_line.to_ascii_lowercase());
-                corpus.push(http.raw_text.to_ascii_lowercase());
+            match detail.application.as_ref() {
+                Some(ApplicationPacket::Http(http)) => {
+                    corpus.push(http.start_line.to_ascii_lowercase());
+                    corpus.push(http.raw_text.to_ascii_lowercase());
+                }
+                Some(ApplicationPacket::Tls(tls)) => {
+                    corpus.push(tls.content_type.to_ascii_lowercase());
+                    corpus.push(tls.version.to_ascii_lowercase());
+                    if let Some(handshake_type) = &tls.handshake_type {
+                        corpus.push(handshake_type.to_ascii_lowercase());
+                    }
+                    if let Some(server_name) = &tls.server_name {
+                        corpus.push(server_name.to_ascii_lowercase());
+                    }
+                    if let Some(cipher_suite) = &tls.cipher_suite {
+                        corpus.push(cipher_suite.to_ascii_lowercase());
+                    }
+                    corpus.extend(
+                        tls.alpn_protocols
+                            .iter()
+                            .map(|protocol| protocol.to_ascii_lowercase()),
+                    );
+                }
+                Some(ApplicationPacket::Dns(dns)) => {
+                    corpus.extend(
+                        dns.questions
+                            .iter()
+                            .flat_map(|question| {
+                                [question.name.to_ascii_lowercase(), question.qtype.to_ascii_lowercase()]
+                            }),
+                    );
+                    corpus.extend(
+                        dns.answers.iter().flat_map(|answer| {
+                            [
+                                answer.name.to_ascii_lowercase(),
+                                answer.rtype.to_ascii_lowercase(),
+                                answer.data.to_ascii_lowercase(),
+                            ]
+                        }),
+                    );
+                }
+                Some(ApplicationPacket::Quic(quic)) => {
+                    corpus.push(quic.packet_type.to_ascii_lowercase());
+                    corpus.push(quic.version.to_ascii_lowercase());
+                    corpus.push(quic.dcid.to_ascii_lowercase());
+                    corpus.push(quic.scid.to_ascii_lowercase());
+                }
+                Some(ApplicationPacket::Unknown(unknown)) => {
+                    corpus.push(unknown.preview.to_ascii_lowercase());
+                }
+                None => {}
+            }
+
+            if let Some(icmp) = detail.icmp.as_ref() {
+                corpus.push(icmp.description.to_ascii_lowercase());
+            }
+
+            if let Some(icmpv6) = detail.icmpv6.as_ref() {
+                corpus.push(icmpv6.description.to_ascii_lowercase());
+                if let Some(target_address) = &icmpv6.target_address {
+                    corpus.push(target_address.to_ascii_lowercase());
+                }
             }
 
             if !corpus.into_iter().any(|value| value.contains(&needle)) {

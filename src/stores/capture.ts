@@ -12,6 +12,8 @@ import type {
 } from "../types/session";
 import type { CaptureStats } from "../types/stats";
 
+const FILTER_REFRESH_DELAY_MS = 140;
+
 const state = reactive({
   initialized: false,
   busy: false,
@@ -37,10 +39,10 @@ const state = reactive({
 let listenersReady = false;
 let unlisteners: UnlistenFn[] = [];
 let errorTimer: number | null = null;
+let filterRefreshTimer: number | null = null;
+let packetViewRequestId = 0;
 
-const filteredPackets = computed(() =>
-  state.packets.filter((packet) => matchSummary(packet, state.filter)),
-);
+const filteredPackets = computed(() => state.packets);
 
 const selectedSummary = computed(
   () => state.packets.find((packet) => packet.id === state.selectedPacketId) ?? null,
@@ -132,23 +134,12 @@ export function useCaptureStore() {
     if (session) {
       state.selectedInterface = session.interface_name;
     }
-    state.selectedPacketId = null;
-    state.selectedDetail = null;
 
-    const req: PacketQuery = {
-      session_id: sessionId,
-      filter: snapshotFilter(),
-      offset: 0,
-      limit: 0,
-    };
-
-    const page = await invoke<PacketPage>("query_packets", { req });
-    state.packets = page.items;
-    state.stats = session ? buildStatsFromPackets(session.id, page.items) : emptyStats();
-
-    if (page.items.length > 0) {
-      await selectPacket(page.items[0].id);
-    }
+    await refreshPacketView({
+      sessionId,
+      preserveSelection: false,
+      refreshStats: true,
+    });
   }
 
   async function selectPacket(packetId: number) {
@@ -175,29 +166,35 @@ export function useCaptureStore() {
       protocols.add(protocol);
     }
     state.filter.protocols = Array.from(protocols);
+    schedulePacketRefresh();
   }
 
   function setIpFilter(value: string) {
     state.filter.ip = value.trim() ? value : null;
+    schedulePacketRefresh();
   }
 
   function setPortFilter(value: string) {
     const port = value.trim();
     if (!port) {
       state.filter.port = null;
+      schedulePacketRefresh();
       return;
     }
 
     const parsed = Number.parseInt(port, 10);
     state.filter.port = Number.isNaN(parsed) ? null : parsed;
+    schedulePacketRefresh();
   }
 
   function setSearch(value: string) {
     state.filter.query = value.trim() ? value : null;
+    schedulePacketRefresh();
   }
 
   function setOnlyMalformed(value: boolean) {
     state.filter.only_malformed = value;
+    schedulePacketRefresh();
   }
 
   return {
@@ -227,10 +224,12 @@ async function attachListeners() {
       return;
     }
 
-    state.packets = [packet, ...state.packets];
+    if (await shouldIncludeLivePacket(packet)) {
+      state.packets = [packet, ...state.packets];
 
-    if (!state.selectedPacketId) {
-      await selectFirstPacket(packet.id);
+      if (!state.selectedPacketId) {
+        await selectFirstPacket(packet.id);
+      }
     }
   });
 
@@ -265,6 +264,118 @@ async function attachListeners() {
   listenersReady = true;
 }
 
+async function shouldIncludeLivePacket(packet: PacketSummary): Promise<boolean> {
+  const filter = snapshotFilter();
+  if (!hasActiveFilter(filter)) {
+    return true;
+  }
+
+  if (!state.activeSession) {
+    return false;
+  }
+
+  const detail = await invoke<PacketDetail>("get_packet_detail", {
+    sessionId: state.activeSession.id,
+    packetId: packet.id,
+  });
+  return matchesDetail(detail, filter);
+}
+
+async function refreshPacketView(options?: {
+  sessionId?: string
+  preserveSelection?: boolean
+  refreshStats?: boolean
+}) {
+  const sessionId = options?.sessionId ?? state.activeSession?.id;
+  if (!sessionId) {
+    state.packets = [];
+    state.selectedPacketId = null;
+    state.selectedDetail = null;
+    state.stats = emptyStats();
+    return;
+  }
+
+  const session = state.sessions.find((item) => item.id === sessionId) ?? state.activeSession;
+  if (session) {
+    state.activeSession = session;
+    state.running = session.running;
+    state.selectedInterface = session.interface_name;
+  }
+
+  const preserveSelection = options?.preserveSelection ?? true;
+  const refreshStats = options?.refreshStats ?? !state.running;
+  const previousSelectedId = preserveSelection ? state.selectedPacketId : null;
+  const requestId = ++packetViewRequestId;
+
+  const visibleReq: PacketQuery = {
+    session_id: sessionId,
+    filter: snapshotFilter(),
+    offset: 0,
+    limit: 0,
+  };
+
+  const statsReq: PacketQuery = {
+    session_id: sessionId,
+    filter: null,
+    offset: 0,
+    limit: 0,
+  };
+
+  const [visiblePage, statsPage] = await Promise.all([
+    invoke<PacketPage>("query_packets", { req: visibleReq }),
+    refreshStats ? invoke<PacketPage>("query_packets", { req: statsReq }) : Promise.resolve(null),
+  ]);
+
+  if (requestId !== packetViewRequestId) {
+    return;
+  }
+
+  state.packets = visiblePage.items;
+
+  if (refreshStats) {
+    state.stats = buildStatsFromPackets(sessionId, statsPage?.items ?? []);
+  }
+
+  await syncSelection(visiblePage.items, previousSelectedId);
+}
+
+async function syncSelection(items: PacketSummary[], preferredPacketId: number | null) {
+  if (items.length === 0) {
+    state.selectedPacketId = null;
+    state.selectedDetail = null;
+    return;
+  }
+
+  const nextPacketId =
+    preferredPacketId && items.some((packet) => packet.id === preferredPacketId)
+      ? preferredPacketId
+      : items[0].id;
+
+  if (state.selectedPacketId === nextPacketId && state.selectedDetail?.id === nextPacketId) {
+    return;
+  }
+
+  await selectFirstPacket(nextPacketId);
+}
+
+function schedulePacketRefresh() {
+  if (!state.activeSession) {
+    return;
+  }
+
+  if (filterRefreshTimer !== null) {
+    window.clearTimeout(filterRefreshTimer);
+  }
+
+  filterRefreshTimer = window.setTimeout(() => {
+    filterRefreshTimer = null;
+    void refreshPacketView({
+      preserveSelection: true,
+      refreshStats: !state.running,
+    });
+  }, FILTER_REFRESH_DELAY_MS);
+}
+
 async function selectFirstPacket(packetId: number) {
   if (!state.activeSession) {
     return;
@@ -277,35 +388,121 @@ async function selectFirstPacket(packetId: number) {
   });
 }
 
-function matchSummary(packet: PacketSummary, filter: FilterState): boolean {
-  if (filter.protocols.length > 0 && !filter.protocols.includes(packet.protocol)) {
+function hasActiveFilter(filter: FilterState): boolean {
+  return (
+    filter.protocols.length > 0 ||
+    Boolean(filter.ip) ||
+    filter.port !== null ||
+    Boolean(filter.query) ||
+    filter.only_malformed
+  );
+}
+
+function matchesDetail(detail: PacketDetail, filter: FilterState): boolean {
+  if (filter.protocols.length > 0 && !filter.protocols.includes(detail.summary.protocol)) {
     return false;
   }
 
   if (filter.ip) {
-    const ip = filter.ip.toLowerCase();
-    if (!packet.src.toLowerCase().includes(ip) && !packet.dst.toLowerCase().includes(ip)) {
+    const ip = filter.ip.trim().toLowerCase();
+    if (
+      ip &&
+      !detail.summary.src.toLowerCase().includes(ip) &&
+      !detail.summary.dst.toLowerCase().includes(ip)
+    ) {
       return false;
     }
   }
 
-  if (filter.port && !packet.info.includes(filter.port.toString())) {
+  if (filter.port !== null) {
+    const matched =
+      detail.transport && "tcp" in detail.transport
+        ? detail.transport.tcp.src_port === filter.port || detail.transport.tcp.dst_port === filter.port
+        : detail.transport && "udp" in detail.transport
+          ? detail.transport.udp.src_port === filter.port || detail.transport.udp.dst_port === filter.port
+          : false;
+
+    if (!matched) {
+      return false;
+    }
+  }
+
+  if (filter.only_malformed && !detail.is_malformed) {
     return false;
   }
 
   if (filter.query) {
-    const query = filter.query.toLowerCase();
-    const corpus = `${packet.info} ${packet.src} ${packet.dst} ${packet.protocol}`.toLowerCase();
-    if (!corpus.includes(query)) {
-      return false;
+    const needle = filter.query.trim().toLowerCase();
+    if (needle) {
+      const corpus = buildQueryCorpus(detail);
+      if (!corpus.some((value) => value.includes(needle))) {
+        return false;
+      }
     }
   }
 
-  if (filter.only_malformed && !packet.is_malformed) {
-    return false;
+  return true;
+}
+
+function buildQueryCorpus(detail: PacketDetail): string[] {
+  const corpus = [
+    detail.summary.info.toLowerCase(),
+    detail.raw.ascii_preview.toLowerCase(),
+  ];
+
+  if (detail.application) {
+    if ("http" in detail.application) {
+      corpus.push(detail.application.http.start_line.toLowerCase());
+      corpus.push(detail.application.http.raw_text.toLowerCase());
+    } else if ("tls" in detail.application) {
+      corpus.push(detail.application.tls.content_type.toLowerCase());
+      corpus.push(detail.application.tls.version.toLowerCase());
+      if (detail.application.tls.handshake_type) {
+        corpus.push(detail.application.tls.handshake_type.toLowerCase());
+      }
+      if (detail.application.tls.server_name) {
+        corpus.push(detail.application.tls.server_name.toLowerCase());
+      }
+      if (detail.application.tls.cipher_suite) {
+        corpus.push(detail.application.tls.cipher_suite.toLowerCase());
+      }
+      corpus.push(...detail.application.tls.alpn_protocols.map((item) => item.toLowerCase()));
+    } else if ("dns" in detail.application) {
+      corpus.push(
+        ...detail.application.dns.questions.flatMap((question) => [
+          question.name.toLowerCase(),
+          question.qtype.toLowerCase(),
+        ]),
+      );
+      corpus.push(
+        ...detail.application.dns.answers.flatMap((answer) => [
+          answer.name.toLowerCase(),
+          answer.rtype.toLowerCase(),
+          answer.data.toLowerCase(),
+        ]),
+      );
+    } else if ("quic" in detail.application) {
+      corpus.push(detail.application.quic.packet_type.toLowerCase());
+      corpus.push(detail.application.quic.version.toLowerCase());
+      corpus.push(detail.application.quic.dcid.toLowerCase());
+      corpus.push(detail.application.quic.scid.toLowerCase());
+    } else if ("unknown" in detail.application) {
+      corpus.push(detail.application.unknown.preview.toLowerCase());
+    }
   }
 
-  return true;
+  if (detail.icmp) {
+    corpus.push(detail.icmp.description.toLowerCase());
+  }
+
+  if (detail.icmpv6) {
+    corpus.push(detail.icmpv6.description.toLowerCase());
+    if (detail.icmpv6.target_address) {
+      corpus.push(detail.icmpv6.target_address.toLowerCase());
+    }
+  }
+
+  return corpus;
 }
 
 function emptyStats(): CaptureStats {

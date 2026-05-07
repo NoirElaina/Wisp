@@ -249,10 +249,10 @@ fn parse_udp(payload: &[u8], summary: &mut PacketSummary, detail: &mut PacketDet
             let packet = datagram.packet.clone();
             detail.transport = Some(TransportPacket::Udp(packet.clone()));
 
-            if let Some(dns_message) = try_parse_dns(datagram.payload, &packet) {
-                apply_dns(dns_message, summary, detail);
-            } else if let Some(quic_message) = try_parse_quic(datagram.payload, &packet) {
+            if let Some(quic_message) = try_parse_quic(datagram.payload, &packet) {
                 apply_quic(quic_message, summary, detail);
+            } else if let Some(dns_message) = try_parse_dns(datagram.payload, &packet) {
+                apply_dns(dns_message, summary, detail);
             } else {
                 summary.protocol = PacketProtocol::Udp;
                 summary.info = format!(
@@ -358,8 +358,8 @@ fn apply_quic(quic_message: QuicMessage, summary: &mut PacketSummary, detail: &m
 }
 
 fn try_parse_dns(payload: &[u8], packet: &crate::model::packet::UdpDatagram) -> Option<DnsMessage> {
-    let looks_like_dns = matches!(packet.src_port, 53 | 5353 | 853)
-        || matches!(packet.dst_port, 53 | 5353 | 853);
+    let looks_like_dns = matches!(packet.src_port, 53 | 5353)
+        || matches!(packet.dst_port, 53 | 5353);
     if !looks_like_dns {
         return None;
     }
