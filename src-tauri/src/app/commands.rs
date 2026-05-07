@@ -6,7 +6,9 @@ use crate::{
     model::{
         filter::PacketQuery,
         packet::{PacketDetail, PacketPage},
-        session::{CaptureSessionMeta, NetworkInterface, StartCaptureRequest},
+        session::{
+            CaptureRuntimeState, CaptureSessionMeta, NetworkInterface, StartCaptureRequest,
+        },
         stats::CaptureStats,
     },
 };
@@ -18,8 +20,35 @@ pub fn list_interfaces() -> Vec<NetworkInterface> {
 
 #[tauri::command]
 pub fn list_sessions(state: State<'_, AppState>) -> Result<Vec<CaptureSessionMeta>, String> {
+    let active_session_id = {
+        let capture = state
+            .capture
+            .lock()
+            .map_err(|_| "capture lock poisoned".to_string())?;
+        capture.current_session_id().map(str::to_string)
+    };
+
     let store = state.store.lock().map_err(|_| "store lock poisoned".to_string())?;
-    Ok(store.list_sessions())
+    let mut sessions = store.list_sessions();
+    for session in &mut sessions {
+        session.running = active_session_id
+            .as_ref()
+            .is_some_and(|session_id| session.id == *session_id);
+    }
+
+    Ok(sessions)
+}
+
+#[tauri::command]
+pub fn get_runtime_state(state: State<'_, AppState>) -> Result<CaptureRuntimeState, String> {
+    let capture = state
+        .capture
+        .lock()
+        .map_err(|_| "capture lock poisoned".to_string())?;
+
+    Ok(CaptureRuntimeState {
+        active_session_id: capture.current_session_id().map(str::to_string),
+    })
 }
 
 #[tauri::command]
@@ -50,16 +79,17 @@ pub fn start_capture(
     req: StartCaptureRequest,
 ) -> Result<CaptureSessionMeta, String> {
     let session = {
-        let mut store = state.store.lock().map_err(|_| "store lock poisoned".to_string())?;
-        store.create_session(req.interface_name.clone())
-    };
-
-    {
         let mut capture = state
             .capture
             .lock()
             .map_err(|_| "capture lock poisoned".to_string())?;
         capture.ensure_idle()?;
+
+        let session = {
+            let mut store = state.store.lock().map_err(|_| "store lock poisoned".to_string())?;
+            store.create_session(req.interface_name.clone())
+        };
+
         if let Err(err) = worker::spawn(
             app.clone(),
             state.store.clone(),
@@ -73,7 +103,9 @@ pub fn start_capture(
             store.discard_session(&session.id);
             return Err(err);
         }
-    }
+
+        session
+    };
 
     app.emit(events::CAPTURE_STATE, session.clone())
         .map_err(|err| err.to_string())?;

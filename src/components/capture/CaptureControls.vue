@@ -2,20 +2,23 @@
 defineProps<{
   running: boolean
   canStart: boolean
+  busy: boolean
 }>();
 
 defineEmits<{
   (event: "start"): void
   (event: "stop"): void
+  (event: "history"): void
 }>();
 </script>
 
 <template>
   <div class="controls">
-    <button class="action primary" :disabled="running || !canStart" @click="$emit('start')">
+    <button class="action primary" :disabled="running || !canStart || busy" @click="$emit('start')">
       开始捕获
     </button>
-    <button class="action" :disabled="!running" @click="$emit('stop')">停止</button>
+    <button class="action" :disabled="!running || busy" @click="$emit('stop')">停止</button>
+    <button class="action ghost" :disabled="busy" @click="$emit('history')">历史</button>
   </div>
 </template>
 
@@ -45,5 +48,9 @@ defineEmits<{
   border-color: rgba(21, 94, 239, 0.18);
   background: var(--accent);
   color: white;
+}
+
+.ghost {
+  background: rgba(255, 255, 255, 0.64);
 }
 </style>

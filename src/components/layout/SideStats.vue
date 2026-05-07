@@ -6,11 +6,6 @@ import { formatBytes, formatDateTime } from "../../utils/format";
 defineProps<{
   stats: CaptureStats | null
   activeSession: CaptureSessionMeta | null
-  sessions: CaptureSessionMeta[]
-}>();
-
-defineEmits<{
-  (event: "load-session", sessionId: string): void
 }>();
 
 function formatInterfaceName(value: string | null | undefined): string {
@@ -30,14 +25,6 @@ function formatInterfaceName(value: string | null | undefined): string {
   return value;
 }
 
-function formatSessionTitle(session: CaptureSessionMeta): string {
-  const suffix = session.id.match(/(\d+)$/)?.[1];
-  if (suffix) {
-    return `${formatInterfaceName(session.interface_name)} · 捕获 ${suffix}`;
-  }
-
-  return `${formatInterfaceName(session.interface_name)} · 捕获会话`;
-}
 </script>
 
 <template>
@@ -71,34 +58,14 @@ function formatSessionTitle(session: CaptureSessionMeta): string {
       </article>
     </div>
 
-    <div class="sessions">
-      <div class="sessions-head">
-        <p class="eyebrow">历史</p>
-        <span>{{ sessions.length }} 个会话</span>
-      </div>
-
-      <button
-        v-for="session in sessions"
-        :key="session.id"
-        class="session-item"
-        :class="{ active: session.id === activeSession?.id }"
-        @click="$emit('load-session', session.id)"
-      >
-        <div>
-          <strong>{{ formatSessionTitle(session) }}</strong>
-          <span>{{ formatInterfaceName(session.interface_name) }}</span>
-        </div>
-        <small>{{ session.packet_count }} 个包</small>
-      </button>
-    </div>
   </section>
 </template>
 
 <style scoped>
 .panel {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 16px;
+  grid-template-rows: auto auto;
+  gap: 12px;
   height: 100%;
   min-height: 0;
 }
@@ -141,15 +108,15 @@ h3 {
 .metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .metrics article {
   display: grid;
   gap: 6px;
   align-content: start;
-  min-height: 86px;
-  padding: 12px;
+  min-height: 72px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.7);
@@ -163,48 +130,9 @@ h3 {
 }
 
 .metrics strong,
-.session-item strong {
+.metrics strong {
   font-size: 13px;
   line-height: 1.45;
   overflow-wrap: anywhere;
-}
-
-.sessions {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
-  min-height: 0;
-  overflow: auto;
-  padding-right: 2px;
-}
-
-.session-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.72);
-  color: var(--text);
-  text-align: left;
-}
-
-.session-item.active {
-  border-color: rgba(21, 94, 239, 0.24);
-  background: rgba(21, 94, 239, 0.08);
-}
-
-.session-item div {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
-
-small {
-  color: var(--subtle);
 }
 </style>

@@ -4,11 +4,17 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { FilterState, PacketQuery } from "../types/filter";
 import type { PacketDetail, PacketPage, PacketSummary } from "../types/packet";
-import type { CaptureSessionMeta, NetworkInterface, StartCaptureRequest } from "../types/session";
+import type {
+  CaptureRuntimeState,
+  CaptureSessionMeta,
+  NetworkInterface,
+  StartCaptureRequest,
+} from "../types/session";
 import type { CaptureStats } from "../types/stats";
 
 const state = reactive({
   initialized: false,
+  busy: false,
   running: false,
   selectedInterface: "",
   interfaces: [] as NetworkInterface[],
@@ -25,10 +31,12 @@ const state = reactive({
     only_malformed: false,
   } as FilterState,
   stats: null as CaptureStats | null,
+  errorMessage: "",
 });
 
 let listenersReady = false;
 let unlisteners: UnlistenFn[] = [];
+let errorTimer: number | null = null;
 
 const filteredPackets = computed(() =>
   state.packets.filter((packet) => matchSummary(packet, state.filter)),
@@ -46,9 +54,10 @@ export function useCaptureStore() {
 
     await refreshInterfaces();
     await refreshSessions();
+    await restoreRuntimeState();
 
-    if (!state.selectedInterface && state.interfaces.length > 0) {
-      state.selectedInterface = state.interfaces[0].name;
+    if (state.activeSession) {
+      await loadSession(state.activeSession.id);
     }
 
     state.initialized = true;
@@ -63,31 +72,55 @@ export function useCaptureStore() {
   }
 
   async function startCapture() {
-    if (!state.selectedInterface) {
+    if (!state.selectedInterface || state.busy) {
       return;
     }
 
-    state.packets = [];
-    state.selectedPacketId = null;
-    state.selectedDetail = null;
-    state.stats = emptyStats();
+    state.busy = true;
+    clearError();
 
-    const req: StartCaptureRequest = {
-      interface_name: state.selectedInterface,
-      filter: snapshotFilter(),
-    };
+    try {
+      state.packets = [];
+      state.selectedPacketId = null;
+      state.selectedDetail = null;
+      state.stats = emptyStats();
 
-    const session = await invoke<CaptureSessionMeta>("start_capture", { req });
-    state.activeSession = session;
-    state.running = true;
-    await refreshSessions();
+      const req: StartCaptureRequest = {
+        interface_name: state.selectedInterface,
+        filter: snapshotFilter(),
+      };
+
+      const session = await invoke<CaptureSessionMeta>("start_capture", { req });
+      state.activeSession = session;
+      state.running = true;
+      await refreshSessions();
+    } catch (error) {
+      setErrorMessage(normalizeError(error));
+      await refreshSessions();
+    } finally {
+      state.busy = false;
+    }
   }
 
   async function stopCapture() {
-    const session = await invoke<CaptureSessionMeta>("stop_capture");
-    state.activeSession = session;
-    state.running = false;
-    await refreshSessions();
+    if (state.busy) {
+      return;
+    }
+
+    state.busy = true;
+    clearError();
+
+    try {
+      const session = await invoke<CaptureSessionMeta>("stop_capture");
+      state.activeSession = session;
+      state.running = false;
+      await refreshSessions();
+    } catch (error) {
+      setErrorMessage(normalizeError(error));
+      await refreshSessions();
+    } finally {
+      state.busy = false;
+    }
   }
 
   async function loadSession(sessionId: string) {
@@ -177,6 +210,7 @@ export function useCaptureStore() {
     setPortFilter,
     setSearch,
     setOnlyMalformed,
+    clearError,
   };
 }
 
@@ -203,7 +237,12 @@ async function attachListeners() {
     state.running = event.payload.running;
   });
 
-  unlisteners = [packetUnlisten, statsUnlisten, stateUnlisten];
+  const errorUnlisten = await listen<string>("capture:error", (event) => {
+    setErrorMessage(event.payload);
+    void refreshSessionsSnapshot();
+  });
+
+  unlisteners = [packetUnlisten, statsUnlisten, stateUnlisten, errorUnlisten];
   listenersReady = true;
 }
 
@@ -258,6 +297,78 @@ function emptyStats(): CaptureStats {
     bandwidth: [],
     protocols: [],
   };
+}
+
+async function refreshSessionsSnapshot() {
+  state.sessions = await invoke<CaptureSessionMeta[]>("list_sessions");
+}
+
+async function restoreRuntimeState() {
+  const runtime = await invoke<CaptureRuntimeState>("get_runtime_state");
+  const activeSessionId = runtime.active_session_id;
+
+  if (!activeSessionId) {
+    state.activeSession = null;
+    state.running = false;
+    state.stats = emptyStats();
+    return;
+  }
+
+  const session = state.sessions.find((item) => item.id === activeSessionId) ?? null;
+  if (!session) {
+    state.activeSession = null;
+    state.running = false;
+    state.stats = emptyStats();
+    return;
+  }
+
+  state.activeSession = session;
+  state.running = true;
+  state.selectedInterface = session.interface_name;
+}
+
+function normalizeError(error: unknown): string {
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return "操作失败";
+}
+
+function setErrorMessage(message: string) {
+  clearErrorTimer();
+  state.errorMessage = translateErrorMessage(message);
+  errorTimer = window.setTimeout(() => {
+    state.errorMessage = "";
+    errorTimer = null;
+  }, 4200);
+}
+
+function clearError() {
+  clearErrorTimer();
+  state.errorMessage = "";
+}
+
+function clearErrorTimer() {
+  if (errorTimer !== null) {
+    window.clearTimeout(errorTimer);
+    errorTimer = null;
+  }
+}
+
+function translateErrorMessage(message: string): string {
+  switch (message) {
+    case "capture is not running":
+      return "当前没有正在运行的捕获任务。";
+    case "capture is already running":
+      return "已有一个捕获任务正在运行，请先停止后再重新开始。";
+    default:
+      return message;
+  }
 }
 
 function snapshotFilter(): FilterState {

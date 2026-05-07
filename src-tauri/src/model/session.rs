@@ -23,6 +23,11 @@ pub struct CaptureSessionMeta {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureRuntimeState {
+    pub active_session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartCaptureRequest {
     pub interface_name: String,
     pub filter: Option<FilterState>,

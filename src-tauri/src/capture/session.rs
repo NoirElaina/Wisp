@@ -31,6 +31,10 @@ impl CaptureController {
         self.current = Some(running);
     }
 
+    pub fn current_session_id(&self) -> Option<&str> {
+        self.current.as_ref().map(|running| running.session_id.as_str())
+    }
+
     pub fn stop(&mut self) -> Result<String, String> {
         let mut running = self
             .current

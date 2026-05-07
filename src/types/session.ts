@@ -18,6 +18,10 @@ export interface CaptureSessionMeta {
   running: boolean
 }
 
+export interface CaptureRuntimeState {
+  active_session_id: string | null
+}
+
 export interface StartCaptureRequest {
   interface_name: string
   filter: FilterState | null

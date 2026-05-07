@@ -14,6 +14,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app::commands::list_interfaces,
             app::commands::list_sessions,
+            app::commands::get_runtime_state,
             app::commands::start_capture,
             app::commands::stop_capture,
             app::commands::query_packets,
