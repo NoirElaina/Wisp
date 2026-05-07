@@ -89,6 +89,8 @@ function closeHistory() {
         <PacketTable
           :packets="store.filteredPackets.value"
           :selected-id="store.state.selectedPacketId"
+          :total-count="store.state.stats?.packets_total ?? store.state.activeSession?.packet_count ?? store.filteredPackets.value.length"
+          :live-packet-window="store.livePacketWindow"
           @select="store.selectPacket"
         />
       </section>

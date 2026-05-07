@@ -12,6 +12,8 @@ import type {
 } from "../types/session";
 import type { CaptureStats } from "../types/stats";
 
+export const LIVE_PACKET_WINDOW = 600;
+
 const state = reactive({
   initialized: false,
   busy: false,
@@ -134,7 +136,7 @@ export function useCaptureStore() {
       session_id: sessionId,
       filter: snapshotFilter(),
       offset: 0,
-      limit: 500,
+      limit: LIVE_PACKET_WINDOW,
     };
 
     const page = await invoke<PacketPage>("query_packets", { req });
@@ -211,6 +213,7 @@ export function useCaptureStore() {
     setSearch,
     setOnlyMalformed,
     clearError,
+    livePacketWindow: LIVE_PACKET_WINDOW,
   };
 }
 
@@ -221,7 +224,7 @@ async function attachListeners() {
       return;
     }
 
-    state.packets = [packet, ...state.packets].slice(0, 600);
+    state.packets = [packet, ...state.packets].slice(0, LIVE_PACKET_WINDOW);
 
     if (!state.selectedPacketId) {
       await selectFirstPacket(packet.id);

@@ -16,6 +16,10 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedUdp<'_>, String> {
     let length = cursor.read_be_u16()?;
     let checksum = cursor.read_be_u16()?;
 
+    if length < 8 {
+        return Err("invalid udp length".to_string());
+    }
+
     let payload_end = usize::min(length as usize, bytes.len());
 
     Ok(ParsedUdp {
@@ -27,4 +31,19 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedUdp<'_>, String> {
         },
         payload: &bytes[8..payload_end],
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse;
+
+    #[test]
+    fn rejects_length_smaller_than_header() {
+        let bytes = [0x00, 0x35, 0x12, 0x34, 0x00, 0x04, 0x00, 0x00];
+
+        match parse(&bytes) {
+            Ok(_) => panic!("expected invalid udp length"),
+            Err(err) => assert_eq!(err, "invalid udp length"),
+        }
+    }
 }

@@ -38,6 +38,10 @@ pub fn parse(bytes: &[u8]) -> Result<ParsedIpv4<'_>, String> {
         return Err("truncated ipv4 header".to_string());
     }
 
+    if total_length < header_length as u16 {
+        return Err("invalid ipv4 total length".to_string());
+    }
+
     let payload_start = header_length as usize;
     let payload_end = usize::min(total_length as usize, bytes.len());
 
@@ -62,4 +66,22 @@ fn format_ip(bytes: &[u8]) -> String {
         .map(u8::to_string)
         .collect::<Vec<_>>()
         .join(".")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse;
+
+    #[test]
+    fn rejects_total_length_smaller_than_header() {
+        let bytes = [
+            0x45, 0x00, 0x00, 0x00, 0x12, 0x34, 0x00, 0x00, 0x40, 0x06, 0x00, 0x00, 192, 168,
+            1, 10, 192, 168, 1, 1,
+        ];
+
+        match parse(&bytes) {
+            Ok(_) => panic!("expected invalid ipv4 total length"),
+            Err(err) => assert_eq!(err, "invalid ipv4 total length"),
+        }
+    }
 }

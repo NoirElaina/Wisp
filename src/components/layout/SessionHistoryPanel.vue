@@ -39,16 +39,13 @@ function formatSessionTitle(session: CaptureSessionMeta): string {
 </script>
 
 <template>
-  <section class="panel">
-    <div class="panel-head">
-      <div>
-        <p class="eyebrow">历史</p>
-        <h3>捕获会话</h3>
-      </div>
+  <div class="history-panel">
+    <div class="history-meta">
+      <span>历史</span>
       <span>{{ sessions.length }} 个会话</span>
     </div>
 
-    <div class="session-list">
+    <div v-if="sessions.length > 0" class="session-list">
       <button
         v-for="session in sessions"
         :key="session.id"
@@ -66,11 +63,16 @@ function formatSessionTitle(session: CaptureSessionMeta): string {
         </div>
       </button>
     </div>
-  </section>
+
+    <div v-else class="empty-state">
+      <strong>还没有捕获历史</strong>
+      <span>开始一次抓包后，会话会出现在这里。</span>
+    </div>
+  </div>
 </template>
 
 <style scoped>
-.panel {
+.history-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
@@ -78,27 +80,14 @@ function formatSessionTitle(session: CaptureSessionMeta): string {
   height: 100%;
 }
 
-.panel-head {
+.history-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.eyebrow {
-  margin: 0 0 4px;
-  color: var(--muted);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-h3 {
-  margin: 0;
-  font-size: 16px;
-}
-
-.panel-head span,
+.history-meta span,
 .main span,
 .meta small {
   color: var(--muted);
@@ -106,11 +95,13 @@ h3 {
 }
 
 .session-list {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
   min-height: 0;
   overflow: auto;
   padding-right: 2px;
+  align-items: stretch;
 }
 
 .session-item {
@@ -125,6 +116,7 @@ h3 {
   background: rgba(255, 255, 255, 0.72);
   color: var(--text);
   text-align: left;
+  flex: 0 0 auto;
 }
 
 .session-item.active {
@@ -148,5 +140,25 @@ h3 {
   display: grid;
   gap: 4px;
   justify-items: end;
+}
+
+.empty-state {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  min-height: 180px;
+  border: 1px dashed var(--line);
+  border-radius: 18px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.empty-state strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.empty-state span {
+  font-size: 12px;
 }
 </style>

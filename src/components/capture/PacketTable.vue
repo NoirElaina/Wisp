@@ -5,6 +5,8 @@ import PacketRow from "./PacketRow.vue";
 defineProps<{
   packets: PacketSummary[]
   selectedId: number | null
+  totalCount: number
+  livePacketWindow: number
 }>();
 
 defineEmits<{
@@ -19,7 +21,9 @@ defineEmits<{
         <p class="eyebrow">实时流</p>
         <h2>数据包列表</h2>
       </div>
-      <span>{{ packets.length }} 条可见记录</span>
+      <span>
+        {{ totalCount > livePacketWindow ? `当前显示最近 ${packets.length} / 累计 ${totalCount} 条` : `${packets.length} 条可见记录` }}
+      </span>
     </div>
 
     <div class="table-scroll">

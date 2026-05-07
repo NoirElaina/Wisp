@@ -28,7 +28,7 @@ function formatInterfaceName(value: string | null | undefined): string {
 </script>
 
 <template>
-  <section class="panel">
+  <section class="summary-panel">
     <div class="panel-head">
       <div>
         <p class="eyebrow">会话</p>
@@ -62,7 +62,7 @@ function formatInterfaceName(value: string | null | undefined): string {
 </template>
 
 <style scoped>
-.panel {
+.summary-panel {
   display: grid;
   grid-template-rows: auto auto;
   gap: 12px;
@@ -108,28 +108,24 @@ h3 {
 .metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 0 14px;
 }
 
 .metrics article {
   display: grid;
   gap: 6px;
   align-content: start;
-  min-height: 72px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.7);
+  min-height: 68px;
+  padding: 10px 0 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  background: transparent;
 }
 
-.metrics span,
-.session-item span,
-.sessions-head span {
+.metrics span {
   color: var(--muted);
   font-size: 12px;
 }
 
-.metrics strong,
 .metrics strong {
   font-size: 13px;
   line-height: 1.45;
