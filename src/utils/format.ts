@@ -20,11 +20,20 @@ export function formatBytes(bytes: number): string {
 }
 
 export function formatProtocol(protocol: string): string {
-  if (protocol === "https") {
-    return "HTTPS";
+  switch (protocol) {
+    case "https":
+      return "HTTPS"
+    case "icmp":
+      return "ICMP"
+    case "icmpv6":
+      return "ICMPv6"
+    case "quic":
+      return "QUIC"
+    case "dns":
+      return "DNS"
+    default:
+      return protocol.toUpperCase()
   }
-
-  return protocol.toUpperCase();
 }
 
 export function formatDateTime(timestamp: number): string {

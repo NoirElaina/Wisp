@@ -7,6 +7,10 @@ import ProtocolTree from "./ProtocolTree.vue";
 defineProps<{
   packet: PacketDetail | null
 }>();
+
+function dnsFlagsLabel(rcode: number) {
+  return rcode === 0 ? "NoError" : `RCODE=${rcode}`;
+}
 </script>
 
 <template>
@@ -130,11 +134,100 @@ defineProps<{
             </div>
           </dl>
         </article>
+
+        <article v-if="packet.icmp" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
+          <h3 class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">ICMP</h3>
+          <dl>
+            <div>
+              <dt>类型 / 代码</dt>
+              <dd>{{ packet.icmp.icmp_type }} / {{ packet.icmp.code }}</dd>
+            </div>
+            <div>
+              <dt>语义</dt>
+              <dd>{{ packet.icmp.description }}</dd>
+            </div>
+            <div>
+              <dt>标识符</dt>
+              <dd>{{ packet.icmp.identifier ?? "—" }}</dd>
+            </div>
+            <div>
+              <dt>序号</dt>
+              <dd>{{ packet.icmp.sequence ?? "—" }}</dd>
+            </div>
+          </dl>
+        </article>
+
+        <article v-if="packet.icmpv6" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
+          <h3 class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">ICMPv6</h3>
+          <dl>
+            <div>
+              <dt>类型 / 代码</dt>
+              <dd>{{ packet.icmpv6.icmp_type }} / {{ packet.icmpv6.code }}</dd>
+            </div>
+            <div>
+              <dt>语义</dt>
+              <dd>{{ packet.icmpv6.description }}</dd>
+            </div>
+            <div>
+              <dt>目标地址</dt>
+              <dd>{{ packet.icmpv6.target_address ?? "—" }}</dd>
+            </div>
+            <div>
+              <dt>标识符 / 序号</dt>
+              <dd>{{ packet.icmpv6.identifier ?? "—" }} / {{ packet.icmpv6.sequence ?? "—" }}</dd>
+            </div>
+          </dl>
+        </article>
       </section>
 
       <section v-if="packet.application && 'http' in packet.application" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
         <header class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">HTTP 原始内容</header>
         <pre class="m-0 overflow-auto whitespace-pre-wrap px-4 py-4 font-mono text-xs leading-[1.55]">{{ packet.application.http.raw_text }}</pre>
+      </section>
+
+      <section v-if="packet.application && 'dns' in packet.application" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
+        <header class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">DNS</header>
+        <div class="grid gap-4 p-4 md:grid-cols-2">
+          <div>
+            <p class="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">报文概览</p>
+            <dl class="!p-0">
+              <div>
+                <dt>事务 ID</dt>
+                <dd>0x{{ packet.application.dns.transaction_id.toString(16) }}</dd>
+              </div>
+              <div>
+                <dt>方向</dt>
+                <dd>{{ packet.application.dns.is_response ? "响应" : "查询" }}</dd>
+              </div>
+              <div>
+                <dt>状态</dt>
+                <dd>{{ dnsFlagsLabel(packet.application.dns.rcode) }}</dd>
+              </div>
+            </dl>
+          </div>
+          <div>
+            <p class="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">问题区</p>
+            <ul class="m-0 grid gap-2 p-0 list-none">
+              <li v-for="question in packet.application.dns.questions" :key="`${question.qtype}:${question.name}`" class="rounded-xl border border-slate-200/80 bg-slate-50/80 px-3 py-2 text-xs text-slate-700">
+                {{ question.qtype }} {{ question.name }}
+              </li>
+              <li v-if="packet.application.dns.questions.length === 0" class="rounded-xl border border-dashed border-slate-200 px-3 py-2 text-xs text-slate-400">
+                无问题记录
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="border-t border-slate-200/80 px-4 py-4">
+          <p class="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">应答区</p>
+          <ul class="m-0 grid gap-2 p-0 list-none">
+            <li v-for="answer in packet.application.dns.answers" :key="`${answer.rtype}:${answer.name}:${answer.data}`" class="rounded-xl border border-slate-200/80 bg-slate-50/80 px-3 py-2 text-xs text-slate-700">
+              {{ answer.rtype }} {{ answer.name }} → {{ answer.data }} · TTL {{ answer.ttl }}
+            </li>
+            <li v-if="packet.application.dns.answers.length === 0" class="rounded-xl border border-dashed border-slate-200 px-3 py-2 text-xs text-slate-400">
+              无应答记录
+            </li>
+          </ul>
+        </div>
       </section>
 
       <section v-if="packet.application && 'tls' in packet.application" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
@@ -161,8 +254,42 @@ defineProps<{
             <dd>{{ packet.application.tls.alpn_protocols.join(", ") || "—" }}</dd>
           </div>
           <div>
+            <dt>Cipher Suite</dt>
+            <dd>{{ packet.application.tls.cipher_suite ?? "—" }}</dd>
+          </div>
+          <div>
+            <dt>Client Random</dt>
+            <dd>{{ packet.application.tls.client_random ?? "—" }}</dd>
+          </div>
+          <div>
+            <dt>Server Random</dt>
+            <dd>{{ packet.application.tls.server_random ?? "—" }}</dd>
+          </div>
+          <div>
             <dt>记录长度</dt>
             <dd>{{ packet.application.tls.record_length }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section v-if="packet.application && 'quic' in packet.application" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
+        <h3 class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">QUIC</h3>
+        <dl>
+          <div>
+            <dt>包类型</dt>
+            <dd>{{ packet.application.quic.packet_type }}</dd>
+          </div>
+          <div>
+            <dt>版本</dt>
+            <dd>{{ packet.application.quic.version }}</dd>
+          </div>
+          <div>
+            <dt>DCID</dt>
+            <dd>{{ packet.application.quic.dcid || "—" }}</dd>
+          </div>
+          <div>
+            <dt>SCID</dt>
+            <dd>{{ packet.application.quic.scid || "—" }}</dd>
           </div>
         </dl>
       </section>

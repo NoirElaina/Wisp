@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 
+import { formatProtocol } from "../../utils/format";
 import { PROTOCOL_OPTIONS } from "../../utils/protocol";
 
 defineProps<{
@@ -31,7 +32,7 @@ defineEmits<{
       :class="selectedProtocols.includes(protocol) ? 'border-blue-200 bg-blue-50 text-blue-700' : 'text-slate-500'"
       @click="$emit('toggle-protocol', protocol)"
     >
-      {{ protocol.toUpperCase() }}
+      {{ formatProtocol(protocol) }}
     </Button>
 
     <Input

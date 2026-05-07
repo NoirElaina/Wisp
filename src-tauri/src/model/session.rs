@@ -28,6 +28,12 @@ pub struct CaptureRuntimeState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TlsDecryptionConfig {
+    pub enabled: bool,
+    pub keylog_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartCaptureRequest {
     pub interface_name: String,
     pub filter: Option<FilterState>,

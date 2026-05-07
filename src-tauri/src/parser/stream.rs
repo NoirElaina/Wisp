@@ -37,12 +37,12 @@ struct TlsFlowKey {
 
 #[derive(Debug, Default)]
 pub struct TcpFlowTracker {
-    streams: HashMap<TcpFlowKey, TcpStreamState>,
+    streams: HashMap<TcpFlowKey, TcpConversationState>,
     tls_flows: HashMap<TlsFlowKey, TlsFlowState>,
 }
 
 #[derive(Debug, Default)]
-struct TcpStreamState {
+struct TcpConversationState {
     next_seq: Option<u32>,
     buffer: Vec<u8>,
 }
@@ -52,6 +52,9 @@ pub struct TlsFlowState {
     pub is_https: bool,
     pub server_name: Option<String>,
     pub alpn_protocols: Vec<String>,
+    pub cipher_suite: Option<String>,
+    pub client_random: Option<String>,
+    pub server_random: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -127,6 +130,18 @@ impl TcpFlowTracker {
             state.alpn_protocols = observation.message.alpn_protocols.clone();
         }
 
+        if let Some(cipher_suite) = &observation.message.cipher_suite {
+            state.cipher_suite = Some(cipher_suite.clone());
+        }
+
+        if let Some(client_random) = &observation.message.client_random {
+            state.client_random = Some(client_random.clone());
+        }
+
+        if let Some(server_random) = &observation.message.server_random {
+            state.server_random = Some(server_random.clone());
+        }
+
         if !state.is_https {
             state.is_https = likely_https(
                 observation.src_port,
@@ -169,7 +184,7 @@ impl TlsFlowKey {
     }
 }
 
-fn append_payload(state: &mut TcpStreamState, seq: u32, payload: &[u8]) {
+fn append_payload(state: &mut TcpConversationState, seq: u32, payload: &[u8]) {
     match state.next_seq {
         None => {
             state.buffer.extend_from_slice(payload);
@@ -312,10 +327,17 @@ mod tests {
                 handshake_type: Some("ClientHello".to_string()),
                 server_name: Some("www.baidu.com".to_string()),
                 alpn_protocols: vec!["h2".to_string(), "http/1.1".to_string()],
+                cipher_suite: Some("TLS_AES_128_GCM_SHA256".to_string()),
+                client_random: Some("001122".to_string()),
+                server_random: None,
             },
         });
 
         assert!(state.is_https);
         assert_eq!(state.server_name.as_deref(), Some("www.baidu.com"));
+        assert_eq!(
+            state.cipher_suite.as_deref(),
+            Some("TLS_AES_128_GCM_SHA256")
+        );
     }
 }

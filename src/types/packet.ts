@@ -3,7 +3,11 @@ export type PacketProtocol =
   | "arp"
   | "ipv4"
   | "ipv6"
+  | "dns"
+  | "icmp"
+  | "icmpv6"
   | "https"
+  | "quic"
   | "tcp"
   | "udp"
   | "http"
@@ -63,6 +67,23 @@ export interface ArpPacket {
   dst_ip: string
 }
 
+export interface IcmpPacket {
+  icmp_type: number
+  code: number
+  identifier: number | null
+  sequence: number | null
+  description: string
+}
+
+export interface Icmpv6Packet {
+  icmp_type: number
+  code: number
+  identifier: number | null
+  sequence: number | null
+  target_address: string | null
+  description: string
+}
+
 export interface TcpFlags {
   fin: boolean
   syn: boolean
@@ -112,6 +133,37 @@ export interface TlsMessage {
   handshake_type: string | null
   server_name: string | null
   alpn_protocols: string[]
+  cipher_suite: string | null
+  client_random: string | null
+  server_random: string | null
+}
+
+export interface DnsQuestion {
+  name: string
+  qtype: string
+}
+
+export interface DnsAnswer {
+  name: string
+  rtype: string
+  data: string
+  ttl: number
+}
+
+export interface DnsMessage {
+  transaction_id: number
+  is_response: boolean
+  opcode: number
+  rcode: number
+  questions: DnsQuestion[]
+  answers: DnsAnswer[]
+}
+
+export interface QuicMessage {
+  packet_type: string
+  version: string
+  dcid: string
+  scid: string
 }
 
 export interface UnknownPayload {
@@ -121,6 +173,8 @@ export interface UnknownPayload {
 export type ApplicationPacket =
   | { http: HttpMessage }
   | { tls: TlsMessage }
+  | { dns: DnsMessage }
+  | { quic: QuicMessage }
   | { unknown: UnknownPayload }
 
 export interface RawPacketData {
@@ -137,6 +191,8 @@ export interface PacketDetail {
   ipv4: Ipv4Packet | null
   ipv6: Ipv6Packet | null
   arp: ArpPacket | null
+  icmp: IcmpPacket | null
+  icmpv6: Icmpv6Packet | null
   transport: TransportPacket | null
   application: ApplicationPacket | null
   raw: RawPacketData

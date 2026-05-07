@@ -8,6 +8,7 @@ use crate::{
         packet::{PacketDetail, PacketPage},
         session::{
             CaptureRuntimeState, CaptureSessionMeta, NetworkInterface, StartCaptureRequest,
+            TlsDecryptionConfig,
         },
         stats::CaptureStats,
     },
@@ -49,6 +50,30 @@ pub fn get_runtime_state(state: State<'_, AppState>) -> Result<CaptureRuntimeSta
     Ok(CaptureRuntimeState {
         active_session_id: capture.current_session_id().map(str::to_string),
     })
+}
+
+#[tauri::command]
+pub fn get_tls_decryption_config(
+    state: State<'_, AppState>,
+) -> Result<TlsDecryptionConfig, String> {
+    let config = state
+        .tls_decryption
+        .lock()
+        .map_err(|_| "tls decryption lock poisoned".to_string())?;
+    Ok(config.clone())
+}
+
+#[tauri::command]
+pub fn set_tls_decryption_config(
+    state: State<'_, AppState>,
+    config: TlsDecryptionConfig,
+) -> Result<TlsDecryptionConfig, String> {
+    let mut current = state
+        .tls_decryption
+        .lock()
+        .map_err(|_| "tls decryption lock poisoned".to_string())?;
+    *current = config.clone();
+    Ok(config)
 }
 
 #[tauri::command]

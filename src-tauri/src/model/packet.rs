@@ -7,7 +7,11 @@ pub enum PacketProtocol {
     Arp,
     Ipv4,
     Ipv6,
+    Dns,
+    Icmp,
+    Icmpv6,
     Https,
+    Quic,
     Tcp,
     Udp,
     Http,
@@ -22,7 +26,11 @@ impl PacketProtocol {
             Self::Arp => "arp",
             Self::Ipv4 => "ipv4",
             Self::Ipv6 => "ipv6",
+            Self::Dns => "dns",
+            Self::Icmp => "icmp",
+            Self::Icmpv6 => "icmpv6",
             Self::Https => "https",
+            Self::Quic => "quic",
             Self::Tcp => "tcp",
             Self::Udp => "udp",
             Self::Http => "http",
@@ -61,6 +69,8 @@ pub struct PacketDetail {
     pub ipv4: Option<Ipv4Packet>,
     pub ipv6: Option<Ipv6Packet>,
     pub arp: Option<ArpPacket>,
+    pub icmp: Option<IcmpPacket>,
+    pub icmpv6: Option<Icmpv6Packet>,
     pub transport: Option<TransportPacket>,
     pub application: Option<ApplicationPacket>,
     pub raw: RawPacketData,
@@ -107,6 +117,25 @@ pub struct ArpPacket {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IcmpPacket {
+    pub icmp_type: u8,
+    pub code: u8,
+    pub identifier: Option<u16>,
+    pub sequence: Option<u16>,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Icmpv6Packet {
+    pub icmp_type: u8,
+    pub code: u8,
+    pub identifier: Option<u16>,
+    pub sequence: Option<u16>,
+    pub target_address: Option<String>,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TransportPacket {
     Tcp(TcpSegment),
@@ -148,6 +177,8 @@ pub struct UdpDatagram {
 pub enum ApplicationPacket {
     Http(HttpMessage),
     Tls(TlsMessage),
+    Dns(DnsMessage),
+    Quic(QuicMessage),
     Unknown(UnknownPayload),
 }
 
@@ -174,6 +205,41 @@ pub struct TlsMessage {
     pub handshake_type: Option<String>,
     pub server_name: Option<String>,
     pub alpn_protocols: Vec<String>,
+    pub cipher_suite: Option<String>,
+    pub client_random: Option<String>,
+    pub server_random: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DnsQuestion {
+    pub name: String,
+    pub qtype: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DnsAnswer {
+    pub name: String,
+    pub rtype: String,
+    pub data: String,
+    pub ttl: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DnsMessage {
+    pub transaction_id: u16,
+    pub is_response: bool,
+    pub opcode: u8,
+    pub rcode: u8,
+    pub questions: Vec<DnsQuestion>,
+    pub answers: Vec<DnsAnswer>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuicMessage {
+    pub packet_type: String,
+    pub version: String,
+    pub dcid: String,
+    pub scid: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

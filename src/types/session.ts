@@ -22,6 +22,11 @@ export interface CaptureRuntimeState {
   active_session_id: string | null
 }
 
+export interface TlsDecryptionConfig {
+  enabled: boolean
+  keylog_path: string | null
+}
+
 export interface StartCaptureRequest {
   interface_name: string
   filter: FilterState | null

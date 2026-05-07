@@ -1,17 +1,22 @@
 pub mod arp;
 pub mod cursor;
+pub mod dns;
 pub mod ethernet;
 pub mod http;
+pub mod icmp;
+pub mod icmpv6;
 pub mod ipv4;
 pub mod ipv6;
+pub mod quic;
 pub mod stream;
 pub mod tcp;
 pub mod tls;
 pub mod udp;
 
 use crate::model::packet::{
-    ApplicationPacket, HttpMessage, PacketDetail, PacketProtocol, PacketSummary, RawPacketData,
-    TlsMessage, TransportPacket, UnknownPayload,
+    ApplicationPacket, DnsMessage, HttpMessage, IcmpPacket, Icmpv6Packet, PacketDetail,
+    PacketProtocol, PacketSummary, QuicMessage, RawPacketData, TlsMessage, TransportPacket,
+    UnknownPayload,
 };
 
 use self::stream::{TcpFlowObservation, TcpFlowTracker, TlsFlowObservation};
@@ -51,6 +56,8 @@ pub fn parse_frame(
         ipv4: None,
         ipv6: None,
         arp: None,
+        icmp: None,
+        icmpv6: None,
         transport: None,
         application: None,
         raw: RawPacketData {
@@ -123,6 +130,7 @@ fn parse_ipv4(
             let dst_ip = packet.packet.dst_ip.clone();
 
             match packet.packet.protocol {
+                1 => parse_icmp(packet.payload, summary, detail),
                 6 => parse_tcp(packet.payload, &src_ip, &dst_ip, summary, detail, flow_tracker),
                 17 => parse_udp(packet.payload, summary, detail),
                 protocol => {
@@ -156,6 +164,7 @@ fn parse_ipv6(
             let dst_ip = packet.packet.dst_ip.clone();
 
             match packet.packet.next_header {
+                58 => parse_icmpv6(packet.payload, summary, detail),
                 6 => parse_tcp(packet.payload, &src_ip, &dst_ip, summary, detail, flow_tracker),
                 17 => parse_udp(packet.payload, summary, detail),
                 next_header => {
@@ -237,15 +246,51 @@ fn parse_tcp(
 fn parse_udp(payload: &[u8], summary: &mut PacketSummary, detail: &mut PacketDetail) {
     match udp::parse(payload) {
         Ok(datagram) => {
-            summary.protocol = PacketProtocol::Udp;
-            summary.info = format!(
-                "UDP {} -> {} Len={}",
-                datagram.packet.src_port, datagram.packet.dst_port, datagram.packet.length
-            );
-            detail.transport = Some(TransportPacket::Udp(datagram.packet));
-            detail.application = Some(ApplicationPacket::Unknown(UnknownPayload {
-                preview: bytes_to_ascii(datagram.payload),
-            }));
+            let packet = datagram.packet.clone();
+            detail.transport = Some(TransportPacket::Udp(packet.clone()));
+
+            if let Some(dns_message) = try_parse_dns(datagram.payload, &packet) {
+                apply_dns(dns_message, summary, detail);
+            } else if let Some(quic_message) = try_parse_quic(datagram.payload, &packet) {
+                apply_quic(quic_message, summary, detail);
+            } else {
+                summary.protocol = PacketProtocol::Udp;
+                summary.info = format!(
+                    "UDP {} -> {} Len={}",
+                    packet.src_port, packet.dst_port, packet.length
+                );
+                detail.application = Some(ApplicationPacket::Unknown(UnknownPayload {
+                    preview: bytes_to_ascii(datagram.payload),
+                }));
+            }
+        }
+        Err(err) => {
+            detail.is_malformed = true;
+            detail.parse_notes.push(err);
+        }
+    }
+}
+
+fn parse_icmp(payload: &[u8], summary: &mut PacketSummary, detail: &mut PacketDetail) {
+    match icmp::parse(payload) {
+        Ok(packet) => {
+            summary.protocol = PacketProtocol::Icmp;
+            summary.info = icmp_info(&packet);
+            detail.icmp = Some(packet);
+        }
+        Err(err) => {
+            detail.is_malformed = true;
+            detail.parse_notes.push(err);
+        }
+    }
+}
+
+fn parse_icmpv6(payload: &[u8], summary: &mut PacketSummary, detail: &mut PacketDetail) {
+    match icmpv6::parse(payload) {
+        Ok(packet) => {
+            summary.protocol = PacketProtocol::Icmpv6;
+            summary.info = icmpv6_info(&packet);
+            detail.icmpv6 = Some(packet);
         }
         Err(err) => {
             detail.is_malformed = true;
@@ -298,6 +343,80 @@ fn apply_tls(
     };
 
     detail.application = Some(ApplicationPacket::Tls(tls));
+}
+
+fn apply_dns(dns_message: DnsMessage, summary: &mut PacketSummary, detail: &mut PacketDetail) {
+    summary.protocol = PacketProtocol::Dns;
+    summary.info = dns_info(&dns_message);
+    detail.application = Some(ApplicationPacket::Dns(dns_message));
+}
+
+fn apply_quic(quic_message: QuicMessage, summary: &mut PacketSummary, detail: &mut PacketDetail) {
+    summary.protocol = PacketProtocol::Quic;
+    summary.info = format!("QUIC {} {}", quic_message.packet_type, quic_message.version);
+    detail.application = Some(ApplicationPacket::Quic(quic_message));
+}
+
+fn try_parse_dns(payload: &[u8], packet: &crate::model::packet::UdpDatagram) -> Option<DnsMessage> {
+    let looks_like_dns = matches!(packet.src_port, 53 | 5353 | 853)
+        || matches!(packet.dst_port, 53 | 5353 | 853);
+    if !looks_like_dns {
+        return None;
+    }
+
+    dns::parse(payload).ok()
+}
+
+fn try_parse_quic(payload: &[u8], packet: &crate::model::packet::UdpDatagram) -> Option<QuicMessage> {
+    let looks_like_quic = matches!(packet.src_port, 443 | 784 | 853 | 8443)
+        || matches!(packet.dst_port, 443 | 784 | 853 | 8443);
+    if !looks_like_quic {
+        return None;
+    }
+
+    quic::parse(payload)
+}
+
+fn dns_info(message: &DnsMessage) -> String {
+    let subject = message
+        .questions
+        .first()
+        .map(|question| format!("{} {}", question.qtype, question.name))
+        .unwrap_or_else(|| "Message".to_string());
+
+    if message.is_response {
+        if let Some(answer) = message.answers.first() {
+            return format!("DNS Response {subject} -> {}", answer.data);
+        }
+
+        return format!("DNS Response {subject} RCODE={}", message.rcode);
+    }
+
+    format!("DNS Query {subject}")
+}
+
+fn icmp_info(packet: &IcmpPacket) -> String {
+    match (packet.identifier, packet.sequence) {
+        (Some(identifier), Some(sequence)) => format!(
+            "ICMP {} id={} seq={}",
+            packet.description, identifier, sequence
+        ),
+        _ => format!("ICMP {}", packet.description),
+    }
+}
+
+fn icmpv6_info(packet: &Icmpv6Packet) -> String {
+    if let Some(target_address) = &packet.target_address {
+        return format!("ICMPv6 {} {}", packet.description, target_address);
+    }
+
+    match (packet.identifier, packet.sequence) {
+        (Some(identifier), Some(sequence)) => format!(
+            "ICMPv6 {} id={} seq={}",
+            packet.description, identifier, sequence
+        ),
+        _ => format!("ICMPv6 {}", packet.description),
+    }
 }
 
 fn bytes_to_hex(bytes: &[u8]) -> String {

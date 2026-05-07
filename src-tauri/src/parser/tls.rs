@@ -31,6 +31,9 @@ pub fn parse(bytes: &[u8]) -> Option<TlsMessage> {
         handshake_type: None,
         server_name: None,
         alpn_protocols: Vec::new(),
+        cipher_suite: None,
+        client_random: None,
+        server_random: None,
     };
 
     if content_type != 22 || record_payload.len() < 4 {
@@ -48,13 +51,18 @@ pub fn parse(bytes: &[u8]) -> Option<TlsMessage> {
     let body = &record_payload[4..4 + handshake_length as usize];
     match handshake_type {
         1 => {
-            let (server_name, alpn_protocols) = parse_client_hello(body)?;
+            let (server_name, alpn_protocols, cipher_suite, client_random) =
+                parse_client_hello(body)?;
             message.server_name = server_name;
             message.alpn_protocols = alpn_protocols;
+            message.cipher_suite = cipher_suite;
+            message.client_random = client_random;
         }
         2 => {
-            let alpn_protocols = parse_server_hello(body)?;
+            let (alpn_protocols, cipher_suite, server_random) = parse_server_hello(body)?;
             message.alpn_protocols = alpn_protocols;
+            message.cipher_suite = cipher_suite;
+            message.server_random = server_random;
         }
         _ => {}
     }
@@ -62,16 +70,22 @@ pub fn parse(bytes: &[u8]) -> Option<TlsMessage> {
     Some(message)
 }
 
-fn parse_client_hello(body: &[u8]) -> Option<(Option<String>, Vec<String>)> {
+fn parse_client_hello(body: &[u8]) -> Option<(Option<String>, Vec<String>, Option<String>, Option<String>)> {
     if body.len() < 34 {
         return None;
     }
 
+    let client_random = Some(hex(body.get(2..34)?));
     let mut offset = 34;
     let session_id_len = *body.get(offset)? as usize;
     offset += 1 + session_id_len;
 
     let cipher_suites_len = be_u16(body.get(offset..offset + 2)?)? as usize;
+    let first_cipher_suite = if cipher_suites_len >= 2 {
+        Some(cipher_suite_label(be_u16(body.get(offset + 2..offset + 4)?)?).to_string())
+    } else {
+        None
+    };
     offset += 2 + cipher_suites_len;
 
     let compression_methods_len = *body.get(offset)? as usize;
@@ -82,18 +96,21 @@ fn parse_client_hello(body: &[u8]) -> Option<(Option<String>, Vec<String>)> {
     let extensions_end = offset + extensions_len;
     let extensions = body.get(offset..extensions_end)?;
 
-    Some(parse_extensions(extensions))
+    let (server_name, alpn_protocols) = parse_extensions(extensions);
+    Some((server_name, alpn_protocols, first_cipher_suite, client_random))
 }
 
-fn parse_server_hello(body: &[u8]) -> Option<Vec<String>> {
+fn parse_server_hello(body: &[u8]) -> Option<(Vec<String>, Option<String>, Option<String>)> {
     if body.len() < 38 {
         return None;
     }
 
+    let server_random = Some(hex(body.get(2..34)?));
     let mut offset = 34;
     let session_id_len = *body.get(offset)? as usize;
     offset += 1 + session_id_len;
-    offset += 2; // cipher suite
+    let cipher_suite = Some(cipher_suite_label(be_u16(body.get(offset..offset + 2)?)?).to_string());
+    offset += 2;
     offset += 1; // compression method
 
     let extensions_len = be_u16(body.get(offset..offset + 2)?)? as usize;
@@ -102,7 +119,7 @@ fn parse_server_hello(body: &[u8]) -> Option<Vec<String>> {
     let extensions = body.get(offset..extensions_end)?;
 
     let (_, alpn_protocols) = parse_extensions(extensions);
-    Some(alpn_protocols)
+    Some((alpn_protocols, cipher_suite, server_random))
 }
 
 fn parse_extensions(bytes: &[u8]) -> (Option<String>, Vec<String>) {
@@ -213,6 +230,30 @@ fn version_label(version: u16) -> String {
         0x0304 => "TLS 1.3".to_string(),
         _ => format!("0x{version:04x}"),
     }
+}
+
+fn cipher_suite_label(value: u16) -> &'static str {
+    match value {
+        0x1301 => "TLS_AES_128_GCM_SHA256",
+        0x1302 => "TLS_AES_256_GCM_SHA384",
+        0x1303 => "TLS_CHACHA20_POLY1305_SHA256",
+        0x1304 => "TLS_AES_128_CCM_SHA256",
+        0x1305 => "TLS_AES_128_CCM_8_SHA256",
+        0xc02f => "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+        0xc02b => "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+        0xc030 => "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+        0x009c => "TLS_RSA_WITH_AES_128_GCM_SHA256",
+        0x009d => "TLS_RSA_WITH_AES_256_GCM_SHA384",
+        _ => "UNKNOWN_CIPHER_SUITE",
+    }
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<Vec<_>>()
+        .join("")
 }
 
 fn be_u16(bytes: &[u8]) -> Option<u16> {
