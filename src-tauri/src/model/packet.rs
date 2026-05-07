@@ -9,6 +9,7 @@ pub enum PacketProtocol {
     Tcp,
     Udp,
     Http,
+    Tls,
     Unknown,
 }
 
@@ -21,6 +22,7 @@ impl PacketProtocol {
             Self::Tcp => "tcp",
             Self::Udp => "udp",
             Self::Http => "http",
+            Self::Tls => "tls",
             Self::Unknown => "unknown",
         }
     }
@@ -130,6 +132,7 @@ pub struct UdpDatagram {
 #[serde(rename_all = "snake_case")]
 pub enum ApplicationPacket {
     Http(HttpMessage),
+    Tls(TlsMessage),
     Unknown(UnknownPayload),
 }
 
@@ -146,6 +149,16 @@ pub struct HttpMessage {
     pub headers: Vec<HeaderField>,
     pub body_preview: String,
     pub raw_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TlsMessage {
+    pub content_type: String,
+    pub version: String,
+    pub record_length: u16,
+    pub handshake_type: Option<String>,
+    pub server_name: Option<String>,
+    pub alpn_protocols: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

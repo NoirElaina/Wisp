@@ -3,13 +3,17 @@ pub mod cursor;
 pub mod ethernet;
 pub mod http;
 pub mod ipv4;
+pub mod stream;
 pub mod tcp;
+pub mod tls;
 pub mod udp;
 
 use crate::model::packet::{
-    ApplicationPacket, PacketDetail, PacketProtocol, PacketSummary, RawPacketData, TransportPacket,
-    UnknownPayload,
+    ApplicationPacket, HttpMessage, PacketDetail, PacketProtocol, PacketSummary, RawPacketData,
+    TlsMessage, TransportPacket, UnknownPayload,
 };
+
+use self::stream::{TcpFlowObservation, TcpFlowTracker};
 
 pub struct RawFrame {
     pub timestamp_ms: i64,
@@ -17,7 +21,13 @@ pub struct RawFrame {
     pub bytes: Vec<u8>,
 }
 
-pub fn parse_frame(id: i64, session_id: String, frame_no: u64, raw: RawFrame) -> PacketDetail {
+pub fn parse_frame(
+    id: i64,
+    session_id: String,
+    frame_no: u64,
+    raw: RawFrame,
+    flow_tracker: &mut TcpFlowTracker,
+) -> PacketDetail {
     let raw_bytes = raw.bytes;
     let mut summary = PacketSummary {
         id,
@@ -58,7 +68,7 @@ pub fn parse_frame(id: i64, session_id: String, frame_no: u64, raw: RawFrame) ->
             detail.ethernet = Some(frame.frame.clone());
 
             match frame.frame.ether_type {
-                0x0800 => parse_ipv4(frame.payload, &mut summary, &mut detail),
+                0x0800 => parse_ipv4(frame.payload, &mut summary, &mut detail, flow_tracker),
                 0x0806 => match arp::parse(frame.payload) {
                     Ok(arp) => {
                         summary.protocol = PacketProtocol::Arp;
@@ -95,15 +105,22 @@ pub fn parse_frame(id: i64, session_id: String, frame_no: u64, raw: RawFrame) ->
     detail
 }
 
-fn parse_ipv4(payload: &[u8], summary: &mut PacketSummary, detail: &mut PacketDetail) {
+fn parse_ipv4(
+    payload: &[u8],
+    summary: &mut PacketSummary,
+    detail: &mut PacketDetail,
+    flow_tracker: &mut TcpFlowTracker,
+) {
     match ipv4::parse(payload) {
         Ok(packet) => {
             summary.src = packet.packet.src_ip.clone();
             summary.dst = packet.packet.dst_ip.clone();
             detail.ipv4 = Some(packet.packet.clone());
+            let src_ip = packet.packet.src_ip.clone();
+            let dst_ip = packet.packet.dst_ip.clone();
 
             match packet.packet.protocol {
-                6 => parse_tcp(packet.payload, summary, detail),
+                6 => parse_tcp(packet.payload, &src_ip, &dst_ip, summary, detail, flow_tracker),
                 17 => parse_udp(packet.payload, summary, detail),
                 protocol => {
                     summary.protocol = PacketProtocol::Ipv4;
@@ -121,7 +138,14 @@ fn parse_ipv4(payload: &[u8], summary: &mut PacketSummary, detail: &mut PacketDe
     }
 }
 
-fn parse_tcp(payload: &[u8], summary: &mut PacketSummary, detail: &mut PacketDetail) {
+fn parse_tcp(
+    payload: &[u8],
+    src_ip: &str,
+    dst_ip: &str,
+    summary: &mut PacketSummary,
+    detail: &mut PacketDetail,
+    flow_tracker: &mut TcpFlowTracker,
+) {
     match tcp::parse(payload) {
         Ok(segment) => {
             summary.protocol = PacketProtocol::Tcp;
@@ -130,17 +154,33 @@ fn parse_tcp(payload: &[u8], summary: &mut PacketSummary, detail: &mut PacketDet
                 segment.segment.src_port, segment.segment.dst_port, segment.segment.seq, segment.segment.ack
             );
 
+            let transport = segment.segment.clone();
+
             if let Some(http) = http::parse(segment.payload) {
-                summary.protocol = PacketProtocol::Http;
-                summary.info = http.start_line.clone();
-                detail.application = Some(ApplicationPacket::Http(http));
+                apply_http(http, summary, detail);
+            } else if let Some(tls) = tls::parse(segment.payload) {
+                apply_tls(tls, summary, detail);
+            } else if let Some(http) = flow_tracker.observe_http(TcpFlowObservation {
+                src_ip: src_ip.to_string(),
+                dst_ip: dst_ip.to_string(),
+                src_port: transport.src_port,
+                dst_port: transport.dst_port,
+                seq: transport.seq,
+                fin: transport.flags.fin,
+                rst: transport.flags.rst,
+                payload: segment.payload,
+            }) {
+                apply_http(http, summary, detail);
+                detail
+                    .parse_notes
+                    .push("HTTP 通过 TCP 流重组识别".to_string());
             } else if !segment.payload.is_empty() {
                 detail.application = Some(ApplicationPacket::Unknown(UnknownPayload {
                     preview: bytes_to_ascii(segment.payload),
                 }));
             }
 
-            detail.transport = Some(TransportPacket::Tcp(segment.segment));
+            detail.transport = Some(TransportPacket::Tcp(transport));
         }
         Err(err) => {
             detail.is_malformed = true;
@@ -167,6 +207,25 @@ fn parse_udp(payload: &[u8], summary: &mut PacketSummary, detail: &mut PacketDet
             detail.parse_notes.push(err);
         }
     }
+}
+
+fn apply_http(http: HttpMessage, summary: &mut PacketSummary, detail: &mut PacketDetail) {
+    summary.protocol = PacketProtocol::Http;
+    summary.info = http.start_line.clone();
+    detail.application = Some(ApplicationPacket::Http(http));
+}
+
+fn apply_tls(tls: TlsMessage, summary: &mut PacketSummary, detail: &mut PacketDetail) {
+    summary.protocol = PacketProtocol::Tls;
+    summary.info = match tls.handshake_type.as_deref() {
+        Some(kind) => match &tls.server_name {
+            Some(server_name) => format!("TLS {kind} {server_name}"),
+            None => format!("TLS {kind}"),
+        },
+        None => format!("TLS {}", tls.content_type),
+    };
+
+    detail.application = Some(ApplicationPacket::Tls(tls));
 }
 
 fn bytes_to_hex(bytes: &[u8]) -> String {

@@ -38,6 +38,7 @@ pub fn spawn(
         .spawn(move || {
             let mut frame_no = 1u64;
             let mut stats = StatsAccumulator::new(session_id.clone());
+            let mut flow_tracker = parser::stream::TcpFlowTracker::default();
 
             while !thread_stop.load(std::sync::atomic::Ordering::Relaxed) {
                 let raw = match source.next() {
@@ -51,7 +52,8 @@ pub fn spawn(
                     }
                 };
 
-                let mut detail = parser::parse_frame(0, session_id.clone(), frame_no, raw);
+                let mut detail =
+                    parser::parse_frame(0, session_id.clone(), frame_no, raw, &mut flow_tracker);
                 detail.summary.matched = matcher::matches_filter(&detail, filter.as_ref());
                 stats.record(&detail.summary);
 

@@ -5,6 +5,7 @@ export type PacketProtocol =
   | "tcp"
   | "udp"
   | "http"
+  | "tls"
   | "unknown"
 
 export interface PacketSummary {
@@ -93,11 +94,23 @@ export interface HttpMessage {
   raw_text: string
 }
 
+export interface TlsMessage {
+  content_type: string
+  version: string
+  record_length: number
+  handshake_type: string | null
+  server_name: string | null
+  alpn_protocols: string[]
+}
+
 export interface UnknownPayload {
   preview: string
 }
 
-export type ApplicationPacket = { http: HttpMessage } | { unknown: UnknownPayload }
+export type ApplicationPacket =
+  | { http: HttpMessage }
+  | { tls: TlsMessage }
+  | { unknown: UnknownPayload }
 
 export interface RawPacketData {
   captured_len: number

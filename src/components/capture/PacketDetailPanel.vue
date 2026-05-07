@@ -115,6 +115,36 @@ defineProps<{
         <pre>{{ packet.application.http.raw_text }}</pre>
       </section>
 
+      <section v-if="packet.application && 'tls' in packet.application" class="kv">
+        <h3>TLS</h3>
+        <dl>
+          <div>
+            <dt>记录类型</dt>
+            <dd>{{ packet.application.tls.content_type }}</dd>
+          </div>
+          <div>
+            <dt>版本</dt>
+            <dd>{{ packet.application.tls.version }}</dd>
+          </div>
+          <div>
+            <dt>握手类型</dt>
+            <dd>{{ packet.application.tls.handshake_type ?? "—" }}</dd>
+          </div>
+          <div>
+            <dt>SNI</dt>
+            <dd>{{ packet.application.tls.server_name ?? "—" }}</dd>
+          </div>
+          <div>
+            <dt>ALPN</dt>
+            <dd>{{ packet.application.tls.alpn_protocols.join(", ") || "—" }}</dd>
+          </div>
+          <div>
+            <dt>记录长度</dt>
+            <dd>{{ packet.application.tls.record_length }}</dd>
+          </div>
+        </dl>
+      </section>
+
       <section v-if="packet.parse_notes.length > 0" class="notes">
         <header>解析备注</header>
         <ul>

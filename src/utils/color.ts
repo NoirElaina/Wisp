@@ -1,5 +1,6 @@
 export const PROTOCOL_COLORS: Record<string, string> = {
   http: "#f79009",
+  tls: "#0ba5ec",
   tcp: "#155eef",
   udp: "#039855",
   arp: "#7a5af8",

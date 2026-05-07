@@ -28,6 +28,12 @@ function applicationLabel() {
     return props.packet.application.http.is_request ? "HTTP 请求" : "HTTP 响应";
   }
 
+  if ("tls" in props.packet.application) {
+    return props.packet.application.tls.handshake_type
+      ? `TLS ${props.packet.application.tls.handshake_type}`
+      : "TLS 记录";
+  }
+
   return "应用层载荷";
 }
 </script>
@@ -52,7 +58,13 @@ function applicationLabel() {
     </li>
     <li v-if="packet.application">
       <strong>{{ applicationLabel() }}</strong>
-      <span>可查看原始内容预览</span>
+      <span>
+        {{
+          "tls" in packet.application
+            ? `${packet.application.tls.version} · ${packet.application.tls.content_type}`
+            : "可查看原始内容预览"
+        }}
+      </span>
     </li>
   </ul>
 </template>
