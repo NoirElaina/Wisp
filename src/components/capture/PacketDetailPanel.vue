@@ -136,6 +136,7 @@ defineProps<{
   display: grid;
   grid-template-rows: auto 1fr;
   height: 100%;
+  min-height: 0;
 }
 
 .detail-head {
@@ -171,6 +172,7 @@ h2 {
   gap: 14px;
   padding: 16px;
   overflow: auto;
+  min-height: 0;
 }
 
 .grid {

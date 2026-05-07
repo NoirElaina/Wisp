@@ -110,8 +110,11 @@ onMounted(() => {
 <style scoped>
 .shell {
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 18px;
   padding: 22px;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .hero {
@@ -178,13 +181,15 @@ onMounted(() => {
   display: grid;
   grid-template-columns: minmax(740px, 1.8fr) minmax(380px, 1fr);
   gap: 18px;
-  min-height: 520px;
+  min-height: 0;
 }
 
 .dashboard {
   display: grid;
   grid-template-columns: minmax(480px, 1.6fr) minmax(300px, 1fr) minmax(320px, 1fr);
   gap: 18px;
+  max-height: 340px;
+  min-height: 260px;
 }
 
 .panel {
@@ -201,6 +206,11 @@ onMounted(() => {
 .donut-panel,
 .sidebar-panel {
   overflow: hidden;
+}
+
+.table-panel,
+.detail-panel {
+  min-height: 0;
 }
 
 .chart-panel,

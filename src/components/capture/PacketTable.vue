@@ -53,6 +53,7 @@ defineEmits<{
   display: grid;
   grid-template-rows: auto 1fr;
   height: 100%;
+  min-height: 0;
 }
 
 .table-head {
@@ -83,6 +84,7 @@ h2 {
 
 .table-scroll {
   overflow: auto;
+  min-height: 0;
 }
 
 table {

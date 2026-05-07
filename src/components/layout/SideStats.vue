@@ -12,6 +12,32 @@ defineProps<{
 defineEmits<{
   (event: "load-session", sessionId: string): void
 }>();
+
+function formatInterfaceName(value: string | null | undefined): string {
+  if (!value) {
+    return "未选择";
+  }
+
+  if (value.startsWith("\\Device\\NPF_Loopback")) {
+    return "本地回环";
+  }
+
+  const match = value.match(/^\\Device\\NPF_(\{.+\})$/i);
+  if (match) {
+    return `Npcap 网卡 ${match[1]}`;
+  }
+
+  return value;
+}
+
+function formatSessionTitle(session: CaptureSessionMeta): string {
+  const suffix = session.id.match(/(\d+)$/)?.[1];
+  if (suffix) {
+    return `${formatInterfaceName(session.interface_name)} · 捕获 ${suffix}`;
+  }
+
+  return `${formatInterfaceName(session.interface_name)} · 捕获会话`;
+}
 </script>
 
 <template>
@@ -37,7 +63,7 @@ defineEmits<{
       </article>
       <article>
         <span>网卡</span>
-        <strong>{{ activeSession?.interface_name ?? "未选择" }}</strong>
+        <strong>{{ formatInterfaceName(activeSession?.interface_name) }}</strong>
       </article>
       <article>
         <span>开始时间</span>
@@ -59,8 +85,8 @@ defineEmits<{
         @click="$emit('load-session', session.id)"
       >
         <div>
-          <strong>{{ session.name }}</strong>
-          <span>{{ session.interface_name }}</span>
+          <strong>{{ formatSessionTitle(session) }}</strong>
+          <span>{{ formatInterfaceName(session.interface_name) }}</span>
         </div>
         <small>{{ session.packet_count }} 个包</small>
       </button>
@@ -71,8 +97,10 @@ defineEmits<{
 <style scoped>
 .panel {
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 16px;
   height: 100%;
+  min-height: 0;
 }
 
 .panel-head,
@@ -119,6 +147,8 @@ h3 {
 .metrics article {
   display: grid;
   gap: 6px;
+  align-content: start;
+  min-height: 86px;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -135,11 +165,17 @@ h3 {
 .metrics strong,
 .session-item strong {
   font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .sessions {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .session-item {
@@ -164,6 +200,8 @@ h3 {
 .session-item div {
   display: grid;
   gap: 2px;
+  min-width: 0;
+  flex: 1;
 }
 
 small {

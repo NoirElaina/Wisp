@@ -9,6 +9,30 @@ defineProps<{
 defineEmits<{
   (event: "update:modelValue", value: string): void
 }>();
+
+function interfaceLabel(item: NetworkInterface): string {
+  const primaryAddress = item.addresses.find((address) => address.includes(".")) ?? item.addresses[0] ?? "无 IP";
+  const primaryName = prettifyInterfaceName(item);
+
+  return `${primaryName} · ${primaryAddress}`;
+}
+
+function prettifyInterfaceName(item: NetworkInterface): string {
+  if (item.is_loopback || item.name.includes("Loopback")) {
+    return "本地回环";
+  }
+
+  const description = item.description.trim();
+  if (description && description !== "No interface description") {
+    return description;
+  }
+
+  if (item.name.startsWith("\\Device\\NPF_")) {
+    return "Npcap 网卡";
+  }
+
+  return item.name;
+}
 </script>
 
 <template>
@@ -16,7 +40,7 @@ defineEmits<{
     <span>网卡</span>
     <select :value="modelValue" @change="$emit('update:modelValue', ($event.target as HTMLSelectElement).value)">
       <option v-for="item in interfaces" :key="item.name" :value="item.name">
-        {{ item.name }} · {{ item.addresses[0] ?? "无 IP" }}
+        {{ interfaceLabel(item) }}
       </option>
     </select>
   </label>
