@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import AppShell from "./components/layout/AppShell.vue";
+import { Toaster as Sonner } from "@/components/ui/sonner";
 </script>
 
 <template>
   <AppShell />
+  <Sonner rich-colors position="top-right" />
 </template>
 
 <style>

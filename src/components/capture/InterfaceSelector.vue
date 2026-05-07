@@ -1,4 +1,12 @@
 <script setup lang="ts">
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
 import type { NetworkInterface } from "../../types/session";
 
 defineProps<{
@@ -36,14 +44,22 @@ function prettifyInterfaceName(item: NetworkInterface): string {
 </script>
 
 <template>
-  <label class="select-wrap">
+  <div class="select-wrap">
     <span>网卡</span>
-    <select :value="modelValue" @change="$emit('update:modelValue', ($event.target as HTMLSelectElement).value)">
-      <option v-for="item in interfaces" :key="item.name" :value="item.name">
-        {{ interfaceLabel(item) }}
-      </option>
-    </select>
-  </label>
+    <Select
+      :model-value="modelValue"
+      @update:model-value="$emit('update:modelValue', typeof $event === 'string' ? $event : '')"
+    >
+      <SelectTrigger class="trigger">
+        <SelectValue placeholder="选择捕获网卡" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem v-for="item in interfaces" :key="item.name" :value="item.name">
+          {{ interfaceLabel(item) }}
+        </SelectItem>
+      </SelectContent>
+    </Select>
+  </div>
 </template>
 
 <style scoped>
@@ -58,14 +74,10 @@ span {
   font-size: 12px;
 }
 
-select {
+.trigger {
   width: min(520px, 100%);
   min-width: 320px;
   height: 40px;
-  padding: 0 14px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
   background: rgba(255, 255, 255, 0.82);
-  color: var(--text);
 }
 </style>

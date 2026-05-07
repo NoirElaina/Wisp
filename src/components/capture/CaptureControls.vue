@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { Button } from "@/components/ui/button";
+
 defineProps<{
   running: boolean
   canStart: boolean
@@ -14,11 +16,11 @@ defineEmits<{
 
 <template>
   <div class="controls">
-    <button class="action primary" :disabled="running || !canStart || busy" @click="$emit('start')">
+    <Button :disabled="running || !canStart || busy" @click="$emit('start')">
       开始捕获
-    </button>
-    <button class="action" :disabled="!running || busy" @click="$emit('stop')">停止</button>
-    <button class="action ghost" :disabled="busy" @click="$emit('history')">历史</button>
+    </Button>
+    <Button variant="outline" :disabled="!running || busy" @click="$emit('stop')">停止</Button>
+    <Button variant="secondary" :disabled="busy" @click="$emit('history')">历史</Button>
   </div>
 </template>
 
@@ -27,30 +29,5 @@ defineEmits<{
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.action {
-  height: 40px;
-  padding: 0 16px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.8);
-  color: var(--text);
-  font-weight: 600;
-}
-
-.action:disabled {
-  cursor: not-allowed;
-  opacity: 0.48;
-}
-
-.primary {
-  border-color: rgba(21, 94, 239, 0.18);
-  background: var(--accent);
-  color: white;
-}
-
-.ghost {
-  background: rgba(255, 255, 255, 0.64);
 }
 </style>

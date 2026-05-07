@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+
 import type { CaptureSessionMeta } from "../../types/session";
 import { formatDateTime } from "../../utils/format";
 
@@ -45,24 +48,28 @@ function formatSessionTitle(session: CaptureSessionMeta): string {
       <span>{{ sessions.length }} 个会话</span>
     </div>
 
-    <div v-if="sessions.length > 0" class="session-list">
-      <button
-        v-for="session in sessions"
-        :key="session.id"
-        class="session-item"
-        :class="{ active: session.id === activeSession?.id }"
-        @click="$emit('load-session', session.id)"
-      >
-        <div class="main">
-          <strong>{{ formatSessionTitle(session) }}</strong>
-          <span>{{ formatDateTime(session.started_at_ms) }}</span>
-        </div>
-        <div class="meta">
-          <small>{{ session.packet_count }} 个包</small>
-          <small>{{ session.running ? "实时" : "已结束" }}</small>
-        </div>
-      </button>
-    </div>
+    <Separator />
+
+    <ScrollArea v-if="sessions.length > 0" class="session-list">
+      <div class="session-stack">
+        <button
+          v-for="session in sessions"
+          :key="session.id"
+          class="session-item"
+          :class="{ active: session.id === activeSession?.id }"
+          @click="$emit('load-session', session.id)"
+        >
+          <div class="main">
+            <strong>{{ formatSessionTitle(session) }}</strong>
+            <span>{{ formatDateTime(session.started_at_ms) }}</span>
+          </div>
+          <div class="meta">
+            <small>{{ session.packet_count }} 个包</small>
+            <small>{{ session.running ? "实时" : "已结束" }}</small>
+          </div>
+        </button>
+      </div>
+    </ScrollArea>
 
     <div v-else class="empty-state">
       <strong>还没有捕获历史</strong>
@@ -95,13 +102,14 @@ function formatSessionTitle(session: CaptureSessionMeta): string {
 }
 
 .session-list {
+  min-height: 0;
+}
+
+.session-stack {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-height: 0;
-  overflow: auto;
-  padding-right: 2px;
-  align-items: stretch;
+  padding-right: 8px;
 }
 
 .session-item {

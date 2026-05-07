@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
+import { toast } from "vue-sonner";
+
+import { Separator } from "@/components/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 import { useCaptureStore } from "../../stores/capture";
 import CaptureControls from "../capture/CaptureControls.vue";
@@ -27,6 +36,20 @@ const ipFilterValue = computed(() => store.state.filter.ip ?? "");
 onMounted(() => {
   void store.init();
 });
+
+watch(
+  () => store.state.errorMessage,
+  (message, previous) => {
+    if (!message || message === previous) {
+      return;
+    }
+
+    toast.error(message, {
+      id: "capture-error",
+      duration: 4200,
+    });
+  },
+);
 
 function openHistory() {
   historyOpen.value = true;
@@ -116,40 +139,25 @@ function closeHistory() {
       </article>
     </section>
 
-    <transition name="toast">
-      <aside v-if="store.state.errorMessage" class="toast-panel">
-        <div class="toast-head">
-          <strong>操作提示</strong>
-          <button class="toast-close" @click="store.clearError">关闭</button>
-        </div>
-        <p>{{ store.state.errorMessage }}</p>
-      </aside>
-    </transition>
-
-    <transition name="drawer-fade">
-      <div v-if="historyOpen" class="drawer-mask" @click.self="closeHistory">
-        <aside class="history-drawer">
-          <div class="drawer-head">
-            <div>
-              <p class="drawer-eyebrow">历史</p>
-              <h3>捕获会话</h3>
-            </div>
-            <button class="drawer-close" @click="closeHistory">关闭</button>
-          </div>
-
-          <SessionHistoryPanel
-            :sessions="store.state.sessions"
-            :active-session="store.state.activeSession"
-            @load-session="
-              (sessionId) => {
-                closeHistory();
-                void store.loadSession(sessionId);
-              }
-            "
-          />
-        </aside>
-      </div>
-    </transition>
+    <Sheet :open="historyOpen" @update:open="historyOpen = $event">
+      <SheetContent side="right" class="w-[520px] max-w-[100vw] bg-slate-50/95 px-5 py-6 backdrop-blur-xl">
+        <SheetHeader class="space-y-1 pb-4">
+          <p class="drawer-eyebrow">历史</p>
+          <SheetTitle>捕获会话</SheetTitle>
+        </SheetHeader>
+        <Separator class="mb-4" />
+        <SessionHistoryPanel
+          :sessions="store.state.sessions"
+          :active-session="store.state.activeSession"
+          @load-session="
+            (sessionId) => {
+              closeHistory();
+              void store.loadSession(sessionId);
+            }
+          "
+        />
+      </SheetContent>
+    </Sheet>
   </div>
 </template>
 
@@ -266,128 +274,11 @@ function closeHistory() {
   padding: 16px;
 }
 
-.toast-panel {
-  position: fixed;
-  top: 28px;
-  right: 28px;
-  z-index: 40;
-  display: grid;
-  gap: 10px;
-  width: min(360px, calc(100vw - 56px));
-  padding: 14px 16px;
-  border: 1px solid rgba(180, 35, 24, 0.18);
-  border-radius: 18px;
-  background: rgba(255, 248, 247, 0.96);
-  box-shadow: 0 18px 40px rgba(180, 35, 24, 0.12);
-  backdrop-filter: blur(18px);
-  color: var(--danger);
-}
-
-.toast-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.toast-head strong {
-  font-size: 13px;
-}
-
-.toast-close {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.toast-panel p {
-  margin: 0;
-  line-height: 1.6;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.toast-enter-active,
-.toast-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-.toast-enter-from,
-.toast-leave-to {
-  opacity: 0;
-  transform: translate3d(0, -10px, 0);
-}
-
-.drawer-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 35;
-  display: flex;
-  justify-content: flex-end;
-  background: rgba(15, 23, 42, 0.18);
-  backdrop-filter: blur(6px);
-}
-
-.history-drawer {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  width: min(520px, 100vw);
-  height: 100vh;
-  padding: 22px 20px;
-  background: rgba(248, 250, 252, 0.98);
-  border-left: 1px solid var(--line);
-  box-shadow: -18px 0 40px rgba(15, 23, 42, 0.12);
-}
-
-.drawer-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 14px;
-}
-
 .drawer-eyebrow {
   margin: 0 0 4px;
   color: var(--muted);
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-}
-
-.drawer-head h3 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.drawer-close {
-  height: 36px;
-  padding: 0 14px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.86);
-  color: var(--text);
-}
-
-.drawer-fade-enter-active,
-.drawer-fade-leave-active {
-  transition: opacity 0.22s ease;
-}
-
-.drawer-fade-enter-active .history-drawer,
-.drawer-fade-leave-active .history-drawer {
-  transition: transform 0.22s ease;
-}
-
-.drawer-fade-enter-from,
-.drawer-fade-leave-to {
-  opacity: 0;
-}
-
-.drawer-fade-enter-from .history-drawer,
-.drawer-fade-leave-to .history-drawer {
-  transform: translate3d(28px, 0, 0);
 }
 </style>

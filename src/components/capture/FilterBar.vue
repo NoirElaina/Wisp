@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+
 import { PROTOCOL_OPTIONS } from "../../utils/protocol";
 
 defineProps<{
@@ -18,35 +22,36 @@ defineEmits<{
 
 <template>
   <div class="filter-bar">
-    <button
+    <Button
       v-for="protocol in PROTOCOL_OPTIONS"
       :key="protocol"
+      variant="outline"
+      size="sm"
       class="pill"
-      :class="{ active: selectedProtocols.includes(protocol) }"
+      :class="selectedProtocols.includes(protocol) ? 'pill-active' : 'pill-idle'"
       @click="$emit('toggle-protocol', protocol)"
     >
       {{ protocol.toUpperCase() }}
-    </button>
+    </Button>
 
-    <input
+    <Input
       class="compact"
-      :value="ip"
+      :model-value="ip"
       placeholder="IP 过滤"
-      @input="$emit('update:ip', ($event.target as HTMLInputElement).value)"
+      @update:model-value="$emit('update:ip', String($event))"
     />
 
-    <input
+    <Input
       class="compact"
-      :value="port"
+      :model-value="port"
       placeholder="端口"
-      @input="$emit('update:port', ($event.target as HTMLInputElement).value)"
+      @update:model-value="$emit('update:port', String($event))"
     />
 
     <label class="checkbox">
-      <input
-        type="checkbox"
+      <Checkbox
         :checked="onlyMalformed"
-        @change="$emit('update:only-malformed', ($event.target as HTMLInputElement).checked)"
+        @update:checked="$emit('update:only-malformed', $event === true)"
       />
       异常包
     </label>
@@ -62,41 +67,35 @@ defineEmits<{
   min-width: 0;
 }
 
-.pill,
-.compact,
-.checkbox {
-  height: 36px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
+.pill {
+  flex: 0 0 auto;
   background: rgba(255, 255, 255, 0.78);
 }
 
-.pill {
-  flex: 0 0 auto;
-  padding: 0 12px;
+.pill-idle {
   color: var(--muted);
 }
 
-.pill.active {
-  border-color: rgba(21, 94, 239, 0.2);
+.pill-active {
   background: var(--accent-soft);
   color: var(--accent);
+  border-color: rgba(21, 94, 239, 0.2);
 }
 
 .compact {
   width: 110px;
-  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.78);
 }
 
 .checkbox {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  height: 36px;
   padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.78);
   color: var(--muted);
-}
-
-.checkbox input {
-  margin: 0;
 }
 </style>
