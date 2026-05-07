@@ -97,11 +97,15 @@ impl ReplayStore {
             .unwrap_or_default();
 
         let total = filtered.len();
-        let items = filtered
-            .into_iter()
-            .skip(req.offset)
-            .take(req.limit)
-            .collect::<Vec<_>>();
+        let items = if req.limit == 0 {
+            filtered.into_iter().skip(req.offset).collect::<Vec<_>>()
+        } else {
+            filtered
+                .into_iter()
+                .skip(req.offset)
+                .take(req.limit)
+                .collect::<Vec<_>>()
+        };
 
         PacketPage { items, total }
     }
