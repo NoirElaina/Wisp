@@ -42,16 +42,16 @@ function formatSessionTitle(session: CaptureSessionMeta): string {
 </script>
 
 <template>
-  <div class="history-panel">
-    <div class="history-meta">
-      <span>历史</span>
-      <span>{{ sessions.length }} 个会话</span>
+  <div class="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-3">
+    <div class="flex items-center justify-between gap-3">
+      <span class="text-xs text-slate-500">历史</span>
+      <span class="text-xs text-slate-500">{{ sessions.length }} 个会话</span>
     </div>
 
     <Separator />
 
     <ScrollArea v-if="sessions.length > 0" class="session-list">
-      <div class="session-stack">
+      <div class="flex flex-col gap-2.5 pr-2">
         <button
           v-for="session in sessions"
           :key="session.id"
@@ -71,45 +71,16 @@ function formatSessionTitle(session: CaptureSessionMeta): string {
       </div>
     </ScrollArea>
 
-    <div v-else class="empty-state">
-      <strong>还没有捕获历史</strong>
-      <span>开始一次抓包后，会话会出现在这里。</span>
+    <div v-else class="grid min-h-[180px] place-items-center gap-1.5 rounded-2xl border border-dashed border-slate-200 text-center text-slate-500">
+      <strong class="text-sm font-semibold text-slate-900">还没有捕获历史</strong>
+      <span class="text-xs">开始一次抓包后，会话会出现在这里。</span>
     </div>
   </div>
 </template>
 
 <style scoped>
-.history-panel {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
-  min-height: 0;
-  height: 100%;
-}
-
-.history-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.history-meta span,
-.main span,
-.meta small {
-  color: var(--muted);
-  font-size: 12px;
-}
-
 .session-list {
   min-height: 0;
-}
-
-.session-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding-right: 8px;
 }
 
 .session-item {
@@ -119,17 +90,23 @@ function formatSessionTitle(session: CaptureSessionMeta): string {
   gap: 14px;
   width: 100%;
   padding: 12px 14px;
-  border: 1px solid var(--line);
+  border: 1px solid rgb(226 232 240 / 0.9);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.72);
-  color: var(--text);
+  background: rgba(255, 255, 255, 0.82);
+  color: rgb(15 23 42);
   text-align: left;
   flex: 0 0 auto;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
 }
 
 .session-item.active {
-  border-color: rgba(21, 94, 239, 0.24);
-  background: rgba(21, 94, 239, 0.08);
+  border-color: rgba(21, 94, 239, 0.22);
+  background: rgba(239, 246, 255, 0.92);
+}
+
+.session-item:hover {
+  transform: translateY(-1px);
+  background: rgba(248, 250, 252, 0.96);
 }
 
 .main {
@@ -144,29 +121,15 @@ function formatSessionTitle(session: CaptureSessionMeta): string {
   overflow-wrap: anywhere;
 }
 
+.main span,
+.meta small {
+  color: rgb(100 116 139);
+  font-size: 12px;
+}
+
 .meta {
   display: grid;
   gap: 4px;
   justify-items: end;
-}
-
-.empty-state {
-  display: grid;
-  place-items: center;
-  gap: 6px;
-  min-height: 180px;
-  border: 1px dashed var(--line);
-  border-radius: 18px;
-  color: var(--muted);
-  text-align: center;
-}
-
-.empty-state strong {
-  color: var(--text);
-  font-size: 14px;
-}
-
-.empty-state span {
-  font-size: 12px;
 }
 </style>

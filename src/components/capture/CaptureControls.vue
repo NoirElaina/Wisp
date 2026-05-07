@@ -15,7 +15,7 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="controls">
+  <div class="flex items-center gap-2.5">
     <Button :disabled="running || !canStart || busy" @click="$emit('start')">
       开始捕获
     </Button>
@@ -23,11 +23,3 @@ defineEmits<{
     <Button variant="secondary" :disabled="busy" @click="$emit('history')">历史</Button>
   </div>
 </template>
-
-<style scoped>
-.controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-</style>

@@ -44,8 +44,8 @@ function prettifyInterfaceName(item: NetworkInterface): string {
 </script>
 
 <template>
-  <div class="select-wrap">
-    <span>网卡</span>
+  <div class="grid min-w-0 gap-1.5">
+    <span class="text-xs text-slate-500">网卡</span>
     <Select
       :model-value="modelValue"
       @update:model-value="$emit('update:modelValue', typeof $event === 'string' ? $event : '')"
@@ -63,17 +63,6 @@ function prettifyInterfaceName(item: NetworkInterface): string {
 </template>
 
 <style scoped>
-.select-wrap {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-span {
-  color: var(--muted);
-  font-size: 12px;
-}
-
 .trigger {
   width: min(520px, 100%);
   min-width: 320px;

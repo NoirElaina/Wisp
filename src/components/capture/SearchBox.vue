@@ -11,8 +11,8 @@ defineEmits<{
 </script>
 
 <template>
-  <label class="search">
-    <span>搜索</span>
+  <label class="grid min-w-0 gap-1.5">
+    <span class="text-xs text-slate-500">搜索</span>
     <Input
       :model-value="modelValue"
       class="search-input"
@@ -23,17 +23,6 @@ defineEmits<{
 </template>
 
 <style scoped>
-.search {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-span {
-  color: var(--muted);
-  font-size: 12px;
-}
-
 .search-input {
   width: 290px;
   max-width: 100%;

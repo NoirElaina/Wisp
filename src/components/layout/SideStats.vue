@@ -28,107 +28,41 @@ function formatInterfaceName(value: string | null | undefined): string {
 </script>
 
 <template>
-  <section class="summary-panel">
-    <div class="panel-head">
+  <section class="grid h-full min-h-0 grid-rows-[auto_auto] gap-3">
+    <div class="flex items-center justify-between gap-3">
       <div>
-        <p class="eyebrow">会话</p>
-        <h3>捕获概览</h3>
+        <p class="mb-1 text-xs uppercase tracking-[0.08em] text-slate-500">会话</p>
+        <h3 class="m-0 text-base font-semibold text-slate-950">捕获概览</h3>
       </div>
-      <span class="status" :class="{ live: activeSession?.running }">
+      <span
+        class="rounded-full px-2.5 py-1 text-xs font-semibold"
+        :class="
+          activeSession?.running
+            ? 'bg-emerald-100 text-emerald-700'
+            : 'bg-slate-100 text-slate-500'
+        "
+      >
         {{ activeSession?.running ? "实时" : "回放" }}
       </span>
     </div>
 
-    <div class="metrics">
-      <article>
-        <span>总包数</span>
-        <strong>{{ stats?.packets_total ?? activeSession?.packet_count ?? 0 }}</strong>
+    <div class="grid grid-cols-2 gap-x-4 gap-y-0">
+      <article class="grid min-h-[76px] content-start gap-1.5 border-b border-slate-200/80 py-3">
+        <span class="text-xs text-slate-500">总包数</span>
+        <strong class="text-sm font-semibold leading-6 text-slate-950">{{ stats?.packets_total ?? activeSession?.packet_count ?? 0 }}</strong>
       </article>
-      <article>
-        <span>捕获字节</span>
-        <strong>{{ formatBytes(stats?.bytes_total ?? activeSession?.bytes_captured ?? 0) }}</strong>
+      <article class="grid min-h-[76px] content-start gap-1.5 border-b border-slate-200/80 py-3">
+        <span class="text-xs text-slate-500">捕获字节</span>
+        <strong class="text-sm font-semibold leading-6 text-slate-950">{{ formatBytes(stats?.bytes_total ?? activeSession?.bytes_captured ?? 0) }}</strong>
       </article>
-      <article>
-        <span>网卡</span>
-        <strong>{{ formatInterfaceName(activeSession?.interface_name) }}</strong>
+      <article class="grid min-h-[76px] content-start gap-1.5 border-b border-slate-200/80 py-3">
+        <span class="text-xs text-slate-500">网卡</span>
+        <strong class="overflow-wrap-anywhere text-sm font-semibold leading-6 text-slate-950">{{ formatInterfaceName(activeSession?.interface_name) }}</strong>
       </article>
-      <article>
-        <span>开始时间</span>
-        <strong>{{ activeSession ? formatDateTime(activeSession.started_at_ms) : "—" }}</strong>
+      <article class="grid min-h-[76px] content-start gap-1.5 border-b border-slate-200/80 py-3">
+        <span class="text-xs text-slate-500">开始时间</span>
+        <strong class="text-sm font-semibold leading-6 text-slate-950">{{ activeSession ? formatDateTime(activeSession.started_at_ms) : "—" }}</strong>
       </article>
     </div>
-
   </section>
 </template>
-
-<style scoped>
-.summary-panel {
-  display: grid;
-  grid-template-rows: auto auto;
-  gap: 12px;
-  height: 100%;
-  min-height: 0;
-}
-
-.panel-head,
-.sessions-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.eyebrow {
-  margin: 0 0 4px;
-  color: var(--muted);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-h3 {
-  margin: 0;
-  font-size: 16px;
-}
-
-.status {
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(102, 112, 133, 0.08);
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.status.live {
-  background: rgba(2, 122, 72, 0.12);
-  color: var(--success);
-}
-
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 14px;
-}
-
-.metrics article {
-  display: grid;
-  gap: 6px;
-  align-content: start;
-  min-height: 68px;
-  padding: 10px 0 12px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
-  background: transparent;
-}
-
-.metrics span {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.metrics strong {
-  font-size: 13px;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-</style>

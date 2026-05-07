@@ -61,22 +61,22 @@ function closeHistory() {
 </script>
 
 <template>
-  <div class="shell">
-    <header class="hero">
-      <div class="brand">
-        <span class="brand-mark">W</span>
+  <div class="grid h-screen grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-[18px] overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(21,94,239,0.06),transparent_24%),linear-gradient(180deg,#fbfcfd_0%,#eef2f6_100%)] p-[22px]">
+    <header class="grid grid-cols-[minmax(0,1fr)_minmax(360px,520px)] items-center gap-6">
+      <div class="flex items-center gap-4">
+        <span class="grid h-[52px] w-[52px] place-items-center rounded-2xl border border-blue-200/70 bg-[linear-gradient(135deg,rgba(21,94,239,0.16),rgba(21,94,239,0.02)),#fff] text-[20px] font-bold text-blue-700 shadow-sm">W</span>
         <div>
-          <p>Windows 网络抓包工作台</p>
-          <h1>Wisp</h1>
+          <p class="m-0 text-sm text-slate-500">Windows 网络抓包工作台</p>
+          <h1 class="mt-0.5 text-[32px] font-bold leading-none text-slate-950">Wisp</h1>
         </div>
       </div>
-      <p class="tagline">
-        基于 Tauri 的桌面抓包控制台，聚焦高密度数据包检查、回放分析与实时流量可视化。
+      <p class="m-0 max-w-[520px] justify-self-end text-left leading-7 text-slate-500">
+        聚焦高密度数据包检查、回放分析与实时流量可视化。
       </p>
     </header>
 
     <TopBar>
-      <div class="toolbar-left">
+      <div class="flex min-w-0 items-end gap-3">
         <InterfaceSelector
           :interfaces="store.state.interfaces"
           :model-value="store.state.selectedInterface"
@@ -92,7 +92,7 @@ function closeHistory() {
         />
       </div>
 
-      <div class="toolbar-right">
+      <div class="flex min-w-0 flex-wrap items-end justify-start gap-3">
         <FilterBar
           :selected-protocols="store.state.filter.protocols"
           :ip="ipFilterValue"
@@ -107,8 +107,8 @@ function closeHistory() {
       </div>
     </TopBar>
 
-    <main class="content">
-      <section class="panel table-panel">
+    <main class="grid min-h-0 grid-cols-[minmax(740px,1.8fr)_minmax(380px,1fr)] gap-[18px]">
+      <section class="min-h-0 overflow-hidden rounded-3xl border border-slate-200/80 bg-white/90 shadow-[0_18px_48px_rgba(15,23,42,0.08)] backdrop-blur-xl">
         <PacketTable
           :packets="store.filteredPackets.value"
           :selected-id="store.state.selectedPacketId"
@@ -117,21 +117,21 @@ function closeHistory() {
         />
       </section>
 
-      <aside class="panel detail-panel">
+      <aside class="min-h-0 overflow-hidden rounded-3xl border border-slate-200/80 bg-white/90 shadow-[0_18px_48px_rgba(15,23,42,0.08)] backdrop-blur-xl">
         <PacketDetailPanel :packet="store.state.selectedDetail" />
       </aside>
     </main>
 
-    <section class="dashboard">
-      <article class="panel chart-panel">
+    <section class="grid min-h-[260px] max-h-[320px] grid-cols-[minmax(480px,1.6fr)_minmax(300px,1fr)_minmax(320px,1fr)] gap-[18px]">
+      <article class="min-h-[250px] overflow-hidden rounded-3xl border border-slate-200/80 bg-white/90 p-4 shadow-[0_18px_48px_rgba(15,23,42,0.08)] backdrop-blur-xl">
         <TimelineChart :stats="store.state.stats" />
       </article>
 
-      <article class="panel donut-panel">
+      <article class="min-h-[250px] overflow-hidden rounded-3xl border border-slate-200/80 bg-white/90 p-4 shadow-[0_18px_48px_rgba(15,23,42,0.08)] backdrop-blur-xl">
         <ProtocolDonut :stats="store.state.stats" />
       </article>
 
-      <article class="panel sidebar-panel">
+      <article class="min-h-[250px] overflow-hidden rounded-3xl border border-slate-200/80 bg-white/90 p-4 shadow-[0_18px_48px_rgba(15,23,42,0.08)] backdrop-blur-xl">
         <SideStats
           :stats="store.state.stats"
           :active-session="store.state.activeSession"
@@ -162,118 +162,6 @@ function closeHistory() {
 </template>
 
 <style scoped>
-.shell {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 18px;
-  padding: 22px;
-  height: 100vh;
-  overflow: hidden;
-}
-
-.hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 520px);
-  align-items: center;
-  gap: 24px;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  background:
-    linear-gradient(135deg, rgba(21, 94, 239, 0.16), rgba(21, 94, 239, 0.02)),
-    #fff;
-  border: 1px solid rgba(21, 94, 239, 0.14);
-  color: var(--accent);
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.brand p,
-.tagline {
-  margin: 0;
-  color: var(--muted);
-}
-
-.brand h1 {
-  margin: 2px 0 0;
-  font-size: 32px;
-  line-height: 1;
-}
-
-.tagline {
-  max-width: 520px;
-  justify-self: end;
-  line-height: 1.6;
-  text-align: left;
-}
-
-.toolbar-left,
-.toolbar-right {
-  display: flex;
-  align-items: end;
-  gap: 12px;
-  min-width: 0;
-}
-
-.toolbar-right {
-  justify-content: flex-start;
-  flex-wrap: wrap;
-}
-
-.content {
-  display: grid;
-  grid-template-columns: minmax(740px, 1.8fr) minmax(380px, 1fr);
-  gap: 18px;
-  min-height: 0;
-}
-
-.dashboard {
-  display: grid;
-  grid-template-columns: minmax(480px, 1.6fr) minmax(300px, 1fr) minmax(320px, 1fr);
-  gap: 18px;
-  max-height: 320px;
-  min-height: 260px;
-}
-
-.panel {
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  background: var(--panel);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(12px);
-}
-
-.table-panel,
-.detail-panel,
-.chart-panel,
-.donut-panel,
-.sidebar-panel {
-  overflow: hidden;
-}
-
-.table-panel,
-.detail-panel {
-  min-height: 0;
-}
-
-.chart-panel,
-.donut-panel,
-.sidebar-panel {
-  min-height: 250px;
-  padding: 16px;
-}
-
 .drawer-eyebrow {
   margin: 0 0 4px;
   color: var(--muted);

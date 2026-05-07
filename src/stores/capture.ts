@@ -114,7 +114,9 @@ export function useCaptureStore() {
       const session = await invoke<CaptureSessionMeta>("stop_capture");
       state.activeSession = session;
       state.running = false;
+      state.selectedInterface = session.interface_name;
       await refreshSessions();
+      await loadSession(session.id);
     } catch (error) {
       setErrorMessage(normalizeError(error));
       await refreshSessions();
@@ -127,6 +129,9 @@ export function useCaptureStore() {
     const session = state.sessions.find((item) => item.id === sessionId) ?? null;
     state.activeSession = session;
     state.running = session?.running ?? false;
+    if (session) {
+      state.selectedInterface = session.interface_name;
+    }
     state.selectedPacketId = null;
     state.selectedDetail = null;
 
@@ -139,6 +144,7 @@ export function useCaptureStore() {
 
     const page = await invoke<PacketPage>("query_packets", { req });
     state.packets = page.items;
+    state.stats = session ? buildStatsFromPackets(session.id, page.items) : emptyStats();
 
     if (page.items.length > 0) {
       await selectPacket(page.items[0].id);
@@ -229,12 +235,21 @@ async function attachListeners() {
   });
 
   const statsUnlisten = await listen<CaptureStats>("capture:stats", (event) => {
-    state.stats = event.payload.session_id ? event.payload : emptyStats();
+    if (!event.payload.session_id) {
+      return;
+    }
+
+    if (state.activeSession && event.payload.session_id !== state.activeSession.id) {
+      return;
+    }
+
+    state.stats = event.payload;
   });
 
   const stateUnlisten = await listen<CaptureSessionMeta>("capture:state", (event) => {
     state.activeSession = event.payload;
     state.running = event.payload.running;
+    state.selectedInterface = event.payload.interface_name;
   });
 
   const errorUnlisten = await listen<string>("capture:error", (event) => {
@@ -378,6 +393,53 @@ function snapshotFilter(): FilterState {
     port: state.filter.port,
     query: state.filter.query,
     only_malformed: state.filter.only_malformed,
+  };
+}
+
+function buildStatsFromPackets(sessionId: string, packets: PacketSummary[]): CaptureStats {
+  const protocolMap = new Map<string, { packets: number; bytes: number }>();
+  const bandwidthMap = new Map<number, { bytes: number; packets: number }>();
+
+  let bytesTotal = 0;
+
+  for (const packet of packets) {
+    bytesTotal += packet.length;
+
+    const protocolKey = packet.protocol;
+    const protocol = protocolMap.get(protocolKey) ?? { packets: 0, bytes: 0 };
+    protocol.packets += 1;
+    protocol.bytes += packet.length;
+    protocolMap.set(protocolKey, protocol);
+
+    const bucket = Math.floor(packet.ts_unix_ms / 1000) * 1000;
+    const bandwidth = bandwidthMap.get(bucket) ?? { bytes: 0, packets: 0 };
+    bandwidth.bytes += packet.length;
+    bandwidth.packets += 1;
+    bandwidthMap.set(bucket, bandwidth);
+  }
+
+  const protocols = Array.from(protocolMap.entries())
+    .map(([protocol, values]) => ({
+      protocol,
+      packets: values.packets,
+      bytes: values.bytes,
+    }))
+    .sort((left, right) => right.packets - left.packets);
+
+  const bandwidth = Array.from(bandwidthMap.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([ts_unix_ms, values]) => ({
+      ts_unix_ms,
+      bytes_per_sec: values.bytes,
+      packets_per_sec: values.packets,
+    }));
+
+  return {
+    session_id: sessionId,
+    packets_total: packets.length,
+    bytes_total: bytesTotal,
+    bandwidth,
+    protocols,
   };
 }
 

@@ -21,14 +21,14 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="filter-bar">
+  <div class="flex min-w-0 flex-wrap items-center gap-2">
     <Button
       v-for="protocol in PROTOCOL_OPTIONS"
       :key="protocol"
       variant="outline"
       size="sm"
-      class="pill"
-      :class="selectedProtocols.includes(protocol) ? 'pill-active' : 'pill-idle'"
+      class="bg-white/80"
+      :class="selectedProtocols.includes(protocol) ? 'border-blue-200 bg-blue-50 text-blue-700' : 'text-slate-500'"
       @click="$emit('toggle-protocol', protocol)"
     >
       {{ protocol.toUpperCase() }}
@@ -59,32 +59,9 @@ defineEmits<{
 </template>
 
 <style scoped>
-.filter-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.pill {
-  flex: 0 0 auto;
-  background: rgba(255, 255, 255, 0.78);
-}
-
-.pill-idle {
-  color: var(--muted);
-}
-
-.pill-active {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border-color: rgba(21, 94, 239, 0.2);
-}
-
 .compact {
   width: 110px;
-  background: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.82);
 }
 
 .checkbox {
@@ -93,9 +70,10 @@ defineEmits<{
   gap: 8px;
   height: 36px;
   padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: rgba(255, 255, 255, 0.78);
-  color: var(--muted);
+  border: 1px solid rgb(226 232 240 / 0.9);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  color: rgb(100 116 139);
+  font-size: 13px;
 }
 </style>

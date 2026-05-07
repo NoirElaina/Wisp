@@ -10,21 +10,21 @@ defineProps<{
 </script>
 
 <template>
-  <div v-if="packet" class="detail-shell">
-    <header class="detail-head">
+  <div v-if="packet" class="grid h-full min-h-0 grid-rows-[auto_1fr]">
+    <header class="flex items-center justify-between gap-3 border-b border-slate-200/80 px-[18px] py-4">
       <div>
-        <p class="eyebrow">详情</p>
-        <h2>#{{ packet.summary.frame_no }} · {{ formatProtocol(packet.summary.protocol) }}</h2>
+        <p class="mb-1 text-xs uppercase tracking-[0.08em] text-slate-500">详情</p>
+        <h2 class="m-0 text-base font-semibold text-slate-950">#{{ packet.summary.frame_no }} · {{ formatProtocol(packet.summary.protocol) }}</h2>
       </div>
-      <span>{{ formatTimestamp(packet.summary.ts_unix_ms) }}</span>
+      <span class="text-xs text-slate-500">{{ formatTimestamp(packet.summary.ts_unix_ms) }}</span>
     </header>
 
-    <div class="detail-body">
+    <div class="flex min-h-0 flex-col gap-3.5 overflow-auto p-4">
       <ProtocolTree :packet="packet" />
 
-      <section class="grid">
-        <article class="kv">
-          <h3>摘要</h3>
+      <section class="grid grid-cols-2 gap-3">
+        <article class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
+          <h3 class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">摘要</h3>
           <dl>
             <div>
               <dt>源地址</dt>
@@ -45,8 +45,8 @@ defineProps<{
           </dl>
         </article>
 
-        <article v-if="packet.ipv4" class="kv">
-          <h3>IPv4</h3>
+        <article v-if="packet.ipv4" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
+          <h3 class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">IPv4</h3>
           <dl>
             <div>
               <dt>版本</dt>
@@ -67,8 +67,8 @@ defineProps<{
           </dl>
         </article>
 
-        <article v-if="packet.ipv6" class="kv">
-          <h3>IPv6</h3>
+        <article v-if="packet.ipv6" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
+          <h3 class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">IPv6</h3>
           <dl>
             <div>
               <dt>版本</dt>
@@ -89,8 +89,8 @@ defineProps<{
           </dl>
         </article>
 
-        <article v-if="packet.transport && 'tcp' in packet.transport" class="kv">
-          <h3>TCP</h3>
+        <article v-if="packet.transport && 'tcp' in packet.transport" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
+          <h3 class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">TCP</h3>
           <dl>
             <div>
               <dt>端口</dt>
@@ -113,8 +113,8 @@ defineProps<{
           </dl>
         </article>
 
-        <article v-if="packet.transport && 'udp' in packet.transport" class="kv">
-          <h3>UDP</h3>
+        <article v-if="packet.transport && 'udp' in packet.transport" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
+          <h3 class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">UDP</h3>
           <dl>
             <div>
               <dt>端口</dt>
@@ -132,13 +132,13 @@ defineProps<{
         </article>
       </section>
 
-      <section v-if="packet.application && 'http' in packet.application" class="http-block">
-        <header>HTTP 原始内容</header>
-        <pre>{{ packet.application.http.raw_text }}</pre>
+      <section v-if="packet.application && 'http' in packet.application" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
+        <header class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">HTTP 原始内容</header>
+        <pre class="m-0 overflow-auto whitespace-pre-wrap px-4 py-4 font-mono text-xs leading-[1.55]">{{ packet.application.http.raw_text }}</pre>
       </section>
 
-      <section v-if="packet.application && 'tls' in packet.application" class="kv">
-        <h3>TLS</h3>
+      <section v-if="packet.application && 'tls' in packet.application" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
+        <h3 class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">TLS</h3>
         <dl>
           <div>
             <dt>记录类型</dt>
@@ -167,9 +167,9 @@ defineProps<{
         </dl>
       </section>
 
-      <section v-if="packet.parse_notes.length > 0" class="notes">
-        <header>解析备注</header>
-        <ul>
+      <section v-if="packet.parse_notes.length > 0" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
+        <header class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">解析备注</header>
+        <ul class="m-0 px-[18px] pb-[14px] pt-[10px]">
           <li v-for="note in packet.parse_notes" :key="note">{{ note }}</li>
         </ul>
       </section>
@@ -178,78 +178,12 @@ defineProps<{
     </div>
   </div>
 
-  <div v-else class="empty">
+  <div v-else class="grid h-full place-items-center p-6 text-center text-slate-500">
     <p>从左侧表格中选择一个数据包，即可查看逐层解析结果。</p>
   </div>
 </template>
 
 <style scoped>
-.detail-shell {
-  display: grid;
-  grid-template-rows: auto 1fr;
-  height: 100%;
-  min-height: 0;
-}
-
-.detail-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px 18px;
-  border-bottom: 1px solid var(--line);
-}
-
-.eyebrow {
-  margin: 0 0 4px;
-  color: var(--muted);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-h2 {
-  margin: 0;
-  font-size: 16px;
-}
-
-.detail-head span {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.detail-body {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 16px;
-  overflow: auto;
-  min-height: 0;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.kv,
-.http-block,
-.notes {
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.72);
-}
-
-.kv h3,
-.http-block header,
-.notes header {
-  margin: 0;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--line);
-  font-size: 13px;
-}
-
 dl {
   display: grid;
   gap: 10px;
@@ -263,7 +197,7 @@ dl div {
 }
 
 dt {
-  color: var(--muted);
+  color: rgb(100 116 139);
   font-size: 12px;
 }
 
@@ -272,29 +206,6 @@ dd {
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   font-size: 12px;
   overflow-wrap: anywhere;
-}
-
-pre {
-  margin: 0;
-  padding: 14px;
-  overflow: auto;
-  white-space: pre-wrap;
-  font-size: 12px;
-  line-height: 1.55;
-  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-}
-
-ul {
-  margin: 0;
-  padding: 10px 18px 14px;
-}
-
-.empty {
-  display: grid;
-  place-items: center;
-  height: 100%;
-  color: var(--muted);
-  padding: 24px;
-  text-align: center;
+  color: rgb(15 23 42);
 }
 </style>
