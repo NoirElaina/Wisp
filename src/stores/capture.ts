@@ -41,6 +41,8 @@ let unlisteners: UnlistenFn[] = [];
 let errorTimer: number | null = null;
 let filterRefreshTimer: number | null = null;
 let packetViewRequestId = 0;
+let detailRequestId = 0;
+const packetIds = new Set<number>();
 
 const filteredPackets = computed(() => state.packets);
 
@@ -83,6 +85,7 @@ export function useCaptureStore() {
 
     try {
       state.packets = [];
+      packetIds.clear();
       state.selectedPacketId = null;
       state.selectedDetail = null;
       state.stats = emptyStats();
@@ -143,15 +146,7 @@ export function useCaptureStore() {
   }
 
   async function selectPacket(packetId: number) {
-    if (!state.activeSession) {
-      return;
-    }
-
-    state.selectedPacketId = packetId;
-    state.selectedDetail = await invoke<PacketDetail>("get_packet_detail", {
-      sessionId: state.activeSession.id,
-      packetId,
-    });
+    await loadSelectedDetail(packetId);
   }
 
   function setSelectedInterface(name: string) {
@@ -220,12 +215,17 @@ export function useCaptureStore() {
 async function attachListeners() {
   const packetUnlisten = await listen<PacketSummary>("capture:packet", async (event) => {
     const packet = event.payload;
-    if (!state.running || !state.activeSession || packet.session_id !== state.activeSession.id) {
+    const activeSessionId = state.activeSession?.id;
+    if (!state.running || !activeSessionId || packet.session_id !== activeSessionId) {
       return;
     }
 
     if (await shouldIncludeLivePacket(packet)) {
-      state.packets = [packet, ...state.packets];
+      if (!state.running || state.activeSession?.id !== activeSessionId) {
+        return;
+      }
+
+      prependPacket(packet);
 
       if (!state.selectedPacketId) {
         await selectFirstPacket(packet.id);
@@ -270,12 +270,13 @@ async function shouldIncludeLivePacket(packet: PacketSummary): Promise<boolean> 
     return true;
   }
 
-  if (!state.activeSession) {
+  const sessionId = state.activeSession?.id;
+  if (!sessionId) {
     return false;
   }
 
   const detail = await invoke<PacketDetail>("get_packet_detail", {
-    sessionId: state.activeSession.id,
+    sessionId,
     packetId: packet.id,
   });
   return matchesDetail(detail, filter);
@@ -288,7 +289,7 @@ async function refreshPacketView(options?: {
 }) {
   const sessionId = options?.sessionId ?? state.activeSession?.id;
   if (!sessionId) {
-    state.packets = [];
+    replacePackets([]);
     state.selectedPacketId = null;
     state.selectedDetail = null;
     state.stats = emptyStats();
@@ -330,7 +331,7 @@ async function refreshPacketView(options?: {
     return;
   }
 
-  state.packets = visiblePage.items;
+  replacePackets(visiblePage.items);
 
   if (refreshStats) {
     state.stats = buildStatsFromPackets(sessionId, statsPage?.items ?? []);
@@ -377,15 +378,7 @@ function schedulePacketRefresh() {
 }
 
 async function selectFirstPacket(packetId: number) {
-  if (!state.activeSession) {
-    return;
-  }
-
-  state.selectedPacketId = packetId;
-  state.selectedDetail = await invoke<PacketDetail>("get_packet_detail", {
-    sessionId: state.activeSession.id,
-    packetId,
-  });
+  await loadSelectedDetail(packetId);
 }
 
 function hasActiveFilter(filter: FilterState): boolean {
@@ -517,6 +510,49 @@ function emptyStats(): CaptureStats {
 
 async function refreshSessionsSnapshot() {
   state.sessions = await invoke<CaptureSessionMeta[]>("list_sessions");
+}
+
+function replacePackets(items: PacketSummary[]) {
+  packetIds.clear();
+  for (const packet of items) {
+    packetIds.add(packet.id);
+  }
+  state.packets = items;
+}
+
+function prependPacket(packet: PacketSummary) {
+  if (packetIds.has(packet.id)) {
+    return;
+  }
+
+  packetIds.add(packet.id);
+  state.packets = [packet, ...state.packets];
+}
+
+async function loadSelectedDetail(packetId: number) {
+  if (!state.activeSession) {
+    return;
+  }
+
+  const sessionId = state.activeSession.id;
+  const requestId = ++detailRequestId;
+  state.selectedPacketId = packetId;
+
+  const detail = await invoke<PacketDetail>("get_packet_detail", {
+    sessionId,
+    packetId,
+  });
+
+  if (
+    requestId !== detailRequestId ||
+    !state.activeSession ||
+    state.activeSession.id !== sessionId ||
+    state.selectedPacketId !== packetId
+  ) {
+    return;
+  }
+
+  state.selectedDetail = detail;
 }
 
 async function restoreRuntimeState() {

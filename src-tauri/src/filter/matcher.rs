@@ -24,10 +24,10 @@ fn matches_all(detail: &PacketDetail, filter: &FilterState) -> bool {
     }
 
     if let Some(ip) = filter.ip.as_ref() {
-        let ip = ip.trim();
+        let ip = ip.trim().to_ascii_lowercase();
         if !ip.is_empty()
-            && !detail.summary.src.contains(ip)
-            && !detail.summary.dst.contains(ip)
+            && !detail.summary.src.to_ascii_lowercase().contains(&ip)
+            && !detail.summary.dst.to_ascii_lowercase().contains(&ip)
         {
             return false;
         }

@@ -132,7 +132,7 @@ fn parse_ipv4(
             match packet.packet.protocol {
                 1 => parse_icmp(packet.payload, summary, detail),
                 6 => parse_tcp(packet.payload, &src_ip, &dst_ip, summary, detail, flow_tracker),
-                17 => parse_udp(packet.payload, summary, detail),
+                17 => parse_udp(packet.payload, &src_ip, &dst_ip, summary, detail, flow_tracker),
                 protocol => {
                     summary.protocol = PacketProtocol::Ipv4;
                     summary.info = format!("IPv4 protocol {}", protocol);
@@ -166,7 +166,7 @@ fn parse_ipv6(
             match packet.packet.next_header {
                 58 => parse_icmpv6(packet.payload, summary, detail),
                 6 => parse_tcp(packet.payload, &src_ip, &dst_ip, summary, detail, flow_tracker),
-                17 => parse_udp(packet.payload, summary, detail),
+                17 => parse_udp(packet.payload, &src_ip, &dst_ip, summary, detail, flow_tracker),
                 next_header => {
                     summary.protocol = PacketProtocol::Ipv6;
                     summary.info = format!("IPv6 next header {}", next_header);
@@ -243,13 +243,22 @@ fn parse_tcp(
     }
 }
 
-fn parse_udp(payload: &[u8], summary: &mut PacketSummary, detail: &mut PacketDetail) {
+fn parse_udp(
+    payload: &[u8],
+    src_ip: &str,
+    dst_ip: &str,
+    summary: &mut PacketSummary,
+    detail: &mut PacketDetail,
+    flow_tracker: &mut TcpFlowTracker,
+) {
     match udp::parse(payload) {
         Ok(datagram) => {
             let packet = datagram.packet.clone();
             detail.transport = Some(TransportPacket::Udp(packet.clone()));
 
-            if let Some(quic_message) = try_parse_quic(datagram.payload, &packet) {
+            if let Some(quic_message) =
+                try_parse_quic(datagram.payload, &packet, src_ip, dst_ip, flow_tracker)
+            {
                 apply_quic(quic_message, summary, detail);
             } else if let Some(dns_message) = try_parse_dns(datagram.payload, &packet) {
                 apply_dns(dns_message, summary, detail);
@@ -367,14 +376,31 @@ fn try_parse_dns(payload: &[u8], packet: &crate::model::packet::UdpDatagram) -> 
     dns::parse(payload).ok()
 }
 
-fn try_parse_quic(payload: &[u8], packet: &crate::model::packet::UdpDatagram) -> Option<QuicMessage> {
+fn try_parse_quic(
+    payload: &[u8],
+    packet: &crate::model::packet::UdpDatagram,
+    src_ip: &str,
+    dst_ip: &str,
+    flow_tracker: &mut TcpFlowTracker,
+) -> Option<QuicMessage> {
     let looks_like_quic = matches!(packet.src_port, 443 | 784 | 853 | 8443)
         || matches!(packet.dst_port, 443 | 784 | 853 | 8443);
     if !looks_like_quic {
         return None;
     }
 
-    quic::parse(payload)
+    let quic = quic::parse(payload)?;
+    if quic.packet_type == "Short"
+        && !flow_tracker.is_known_quic_flow(src_ip, packet.src_port, dst_ip, packet.dst_port)
+    {
+        return None;
+    }
+
+    if quic.packet_type != "Short" {
+        flow_tracker.remember_quic_flow(src_ip, packet.src_port, dst_ip, packet.dst_port);
+    }
+
+    Some(quic)
 }
 
 fn dns_info(message: &DnsMessage) -> String {

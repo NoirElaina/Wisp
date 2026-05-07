@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::model::packet::{HttpMessage, TlsMessage};
 
@@ -6,6 +6,7 @@ use super::http;
 
 const MAX_STREAM_BUFFER: usize = 64 * 1024;
 const MAX_TRACKED_STREAMS: usize = 2048;
+const MAX_TRACKED_UDP_FLOWS: usize = 4096;
 
 #[derive(Debug, Clone)]
 pub struct TcpFlowObservation<'a> {
@@ -35,10 +36,19 @@ struct TlsFlowKey {
     endpoint_b_port: u16,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct UdpFlowKey {
+    endpoint_a_ip: String,
+    endpoint_a_port: u16,
+    endpoint_b_ip: String,
+    endpoint_b_port: u16,
+}
+
 #[derive(Debug, Default)]
 pub struct TcpFlowTracker {
     streams: HashMap<TcpFlowKey, TcpConversationState>,
     tls_flows: HashMap<TlsFlowKey, TlsFlowState>,
+    quic_flows: HashSet<UdpFlowKey>,
 }
 
 #[derive(Debug, Default)]
@@ -144,8 +154,6 @@ impl TcpFlowTracker {
 
         if !state.is_https {
             state.is_https = likely_https(
-                observation.src_port,
-                observation.dst_port,
                 observation.message,
                 &state.alpn_protocols,
             );
@@ -159,9 +167,46 @@ impl TcpFlowTracker {
 
         snapshot
     }
+
+    pub fn remember_quic_flow(&mut self, src_ip: &str, src_port: u16, dst_ip: &str, dst_port: u16) {
+        if self.quic_flows.len() >= MAX_TRACKED_UDP_FLOWS {
+            self.quic_flows.clear();
+        }
+
+        self.quic_flows
+            .insert(UdpFlowKey::new(src_ip, src_port, dst_ip, dst_port));
+    }
+
+    pub fn is_known_quic_flow(&self, src_ip: &str, src_port: u16, dst_ip: &str, dst_port: u16) -> bool {
+        self.quic_flows
+            .contains(&UdpFlowKey::new(src_ip, src_port, dst_ip, dst_port))
+    }
 }
 
 impl TlsFlowKey {
+    fn new(src_ip: &str, src_port: u16, dst_ip: &str, dst_port: u16) -> Self {
+        let left = (src_ip, src_port);
+        let right = (dst_ip, dst_port);
+
+        if left <= right {
+            Self {
+                endpoint_a_ip: src_ip.to_string(),
+                endpoint_a_port: src_port,
+                endpoint_b_ip: dst_ip.to_string(),
+                endpoint_b_port: dst_port,
+            }
+        } else {
+            Self {
+                endpoint_a_ip: dst_ip.to_string(),
+                endpoint_a_port: dst_port,
+                endpoint_b_ip: src_ip.to_string(),
+                endpoint_b_port: src_port,
+            }
+        }
+    }
+}
+
+impl UdpFlowKey {
     fn new(src_ip: &str, src_port: u16, dst_ip: &str, dst_port: u16) -> Self {
         let left = (src_ip, src_port);
         let right = (dst_ip, dst_port);
@@ -214,7 +259,7 @@ fn append_payload(state: &mut TcpConversationState, seq: u32, payload: &[u8]) {
     }
 }
 
-fn likely_https(src_port: u16, dst_port: u16, message: &TlsMessage, alpn_protocols: &[String]) -> bool {
+fn likely_https(message: &TlsMessage, alpn_protocols: &[String]) -> bool {
     if alpn_protocols
         .iter()
         .any(|protocol| matches!(protocol.as_str(), "http/1.1" | "http/1.0" | "h2" | "h2c" | "h3"))
@@ -231,7 +276,7 @@ fn likely_https(src_port: u16, dst_port: u16, message: &TlsMessage, alpn_protoco
         return true;
     }
 
-    matches!(src_port, 443 | 8443) || matches!(dst_port, 443 | 8443)
+    false
 }
 
 #[cfg(test)]

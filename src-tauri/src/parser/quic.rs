@@ -1,7 +1,7 @@
 use crate::model::packet::QuicMessage;
 
 pub fn parse(bytes: &[u8]) -> Option<QuicMessage> {
-    if bytes.len() < 6 {
+    if bytes.len() < 8 {
         return None;
     }
 
@@ -27,10 +27,16 @@ pub fn parse(bytes: &[u8]) -> Option<QuicMessage> {
     let packet_type_bits = (first >> 4) & 0x03;
     let mut offset = 5usize;
     let dcid_len = *bytes.get(offset)? as usize;
+    if dcid_len > 20 {
+        return None;
+    }
     offset += 1;
     let dcid = bytes.get(offset..offset + dcid_len)?;
     offset += dcid_len;
     let scid_len = *bytes.get(offset)? as usize;
+    if scid_len > 20 {
+        return None;
+    }
     offset += 1;
     let scid = bytes.get(offset..offset + scid_len)?;
 
