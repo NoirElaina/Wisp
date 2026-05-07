@@ -14,7 +14,7 @@ use crate::model::packet::{
     TlsMessage, TransportPacket, UnknownPayload,
 };
 
-use self::stream::{TcpFlowObservation, TcpFlowTracker};
+use self::stream::{TcpFlowObservation, TcpFlowTracker, TlsFlowObservation};
 
 pub struct RawFrame {
     pub timestamp_ms: i64,
@@ -195,7 +195,16 @@ fn parse_tcp(
             if let Some(http) = http::parse(segment.payload) {
                 apply_http(http, summary, detail);
             } else if let Some(tls) = tls::parse(segment.payload) {
-                apply_tls(tls, summary, detail);
+                let flow = flow_tracker.observe_tls(TlsFlowObservation {
+                    src_ip: src_ip.to_string(),
+                    dst_ip: dst_ip.to_string(),
+                    src_port: transport.src_port,
+                    dst_port: transport.dst_port,
+                    fin: transport.flags.fin,
+                    rst: transport.flags.rst,
+                    message: &tls,
+                });
+                apply_tls(tls, flow, summary, detail);
             } else if let Some(http) = flow_tracker.observe_http(TcpFlowObservation {
                 src_ip: src_ip.to_string(),
                 dst_ip: dst_ip.to_string(),
@@ -251,14 +260,41 @@ fn apply_http(http: HttpMessage, summary: &mut PacketSummary, detail: &mut Packe
     detail.application = Some(ApplicationPacket::Http(http));
 }
 
-fn apply_tls(tls: TlsMessage, summary: &mut PacketSummary, detail: &mut PacketDetail) {
-    summary.protocol = PacketProtocol::Tls;
+fn apply_tls(
+    tls: TlsMessage,
+    flow: stream::TlsFlowState,
+    summary: &mut PacketSummary,
+    detail: &mut PacketDetail,
+) {
+    summary.protocol = if flow.is_https {
+        PacketProtocol::Https
+    } else {
+        PacketProtocol::Tls
+    };
+
+    let label = if flow.is_https { "HTTPS" } else { "TLS" };
+    let host = flow.server_name.or_else(|| tls.server_name.clone());
+    let alpn = if !flow.alpn_protocols.is_empty() {
+        flow.alpn_protocols.join(",")
+    } else if !tls.alpn_protocols.is_empty() {
+        tls.alpn_protocols.join(",")
+    } else {
+        String::new()
+    };
+
     summary.info = match tls.handshake_type.as_deref() {
-        Some(kind) => match &tls.server_name {
-            Some(server_name) => format!("TLS {kind} {server_name}"),
-            None => format!("TLS {kind}"),
+        Some(kind) => match (&host, alpn.is_empty()) {
+            (Some(server_name), false) => format!("{label} {kind} {server_name} [{alpn}]"),
+            (Some(server_name), true) => format!("{label} {kind} {server_name}"),
+            (None, false) => format!("{label} {kind} [{alpn}]"),
+            (None, true) => format!("{label} {kind}"),
         },
-        None => format!("TLS {}", tls.content_type),
+        None => match (&host, alpn.is_empty()) {
+            (Some(server_name), false) => format!("{label} {} {server_name} [{alpn}]", tls.content_type),
+            (Some(server_name), true) => format!("{label} {} {server_name}", tls.content_type),
+            (None, false) => format!("{label} {} [{alpn}]", tls.content_type),
+            (None, true) => format!("{label} {}", tls.content_type),
+        },
     };
 
     detail.application = Some(ApplicationPacket::Tls(tls));

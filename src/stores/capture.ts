@@ -109,11 +109,11 @@ export function useCaptureStore() {
 
     state.busy = true;
     clearError();
+    state.running = false;
 
     try {
       const session = await invoke<CaptureSessionMeta>("stop_capture");
       state.activeSession = session;
-      state.running = false;
       state.selectedInterface = session.interface_name;
       await refreshSessions();
       await loadSession(session.id);
@@ -223,7 +223,7 @@ export function useCaptureStore() {
 async function attachListeners() {
   const packetUnlisten = await listen<PacketSummary>("capture:packet", async (event) => {
     const packet = event.payload;
-    if (!state.activeSession || packet.session_id !== state.activeSession.id) {
+    if (!state.running || !state.activeSession || packet.session_id !== state.activeSession.id) {
       return;
     }
 
@@ -235,6 +235,10 @@ async function attachListeners() {
   });
 
   const statsUnlisten = await listen<CaptureStats>("capture:stats", (event) => {
+    if (!state.running) {
+      return;
+    }
+
     if (!event.payload.session_id) {
       return;
     }

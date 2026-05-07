@@ -3,6 +3,7 @@ export type PacketProtocol =
   | "arp"
   | "ipv4"
   | "ipv6"
+  | "https"
   | "tcp"
   | "udp"
   | "http"

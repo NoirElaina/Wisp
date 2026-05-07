@@ -20,6 +20,10 @@ export function formatBytes(bytes: number): string {
 }
 
 export function formatProtocol(protocol: string): string {
+  if (protocol === "https") {
+    return "HTTPS";
+  }
+
   return protocol.toUpperCase();
 }
 
