@@ -5,6 +5,7 @@ export const PROTOCOL_COLORS: Record<string, string> = {
   udp: "#039855",
   arp: "#7a5af8",
   ipv4: "#0f766e",
+  ipv6: "#9333ea",
   unknown: "#98a2b3",
   ethernet: "#344054",
 };

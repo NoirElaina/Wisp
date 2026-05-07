@@ -2,6 +2,7 @@ export type PacketProtocol =
   | "ethernet"
   | "arp"
   | "ipv4"
+  | "ipv6"
   | "tcp"
   | "udp"
   | "http"
@@ -40,6 +41,15 @@ export interface Ipv4Packet {
   ttl: number
   protocol: number
   checksum: number
+  src_ip: string
+  dst_ip: string
+}
+
+export interface Ipv6Packet {
+  version: number
+  payload_length: number
+  next_header: number
+  hop_limit: number
   src_ip: string
   dst_ip: string
 }
@@ -124,6 +134,7 @@ export interface PacketDetail {
   summary: PacketSummary
   ethernet: EthernetFrame | null
   ipv4: Ipv4Packet | null
+  ipv6: Ipv6Packet | null
   arp: ArpPacket | null
   transport: TransportPacket | null
   application: ApplicationPacket | null

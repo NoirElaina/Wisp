@@ -3,6 +3,7 @@ pub mod cursor;
 pub mod ethernet;
 pub mod http;
 pub mod ipv4;
+pub mod ipv6;
 pub mod stream;
 pub mod tcp;
 pub mod tls;
@@ -48,6 +49,7 @@ pub fn parse_frame(
         summary: summary.clone(),
         ethernet: None,
         ipv4: None,
+        ipv6: None,
         arp: None,
         transport: None,
         application: None,
@@ -69,6 +71,7 @@ pub fn parse_frame(
 
             match frame.frame.ether_type {
                 0x0800 => parse_ipv4(frame.payload, &mut summary, &mut detail, flow_tracker),
+                0x86dd => parse_ipv6(frame.payload, &mut summary, &mut detail, flow_tracker),
                 0x0806 => match arp::parse(frame.payload) {
                     Ok(arp) => {
                         summary.protocol = PacketProtocol::Arp;
@@ -128,6 +131,39 @@ fn parse_ipv4(
                     detail
                         .parse_notes
                         .push(format!("unsupported IPv4 protocol {protocol}"));
+                }
+            }
+        }
+        Err(err) => {
+            detail.is_malformed = true;
+            detail.parse_notes.push(err);
+        }
+    }
+}
+
+fn parse_ipv6(
+    payload: &[u8],
+    summary: &mut PacketSummary,
+    detail: &mut PacketDetail,
+    flow_tracker: &mut TcpFlowTracker,
+) {
+    match ipv6::parse(payload) {
+        Ok(packet) => {
+            summary.src = packet.packet.src_ip.clone();
+            summary.dst = packet.packet.dst_ip.clone();
+            detail.ipv6 = Some(packet.packet.clone());
+            let src_ip = packet.packet.src_ip.clone();
+            let dst_ip = packet.packet.dst_ip.clone();
+
+            match packet.packet.next_header {
+                6 => parse_tcp(packet.payload, &src_ip, &dst_ip, summary, detail, flow_tracker),
+                17 => parse_udp(packet.payload, summary, detail),
+                next_header => {
+                    summary.protocol = PacketProtocol::Ipv6;
+                    summary.info = format!("IPv6 next header {}", next_header);
+                    detail
+                        .parse_notes
+                        .push(format!("unsupported IPv6 next header {next_header}"));
                 }
             }
         }

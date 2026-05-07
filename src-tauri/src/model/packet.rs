@@ -6,6 +6,7 @@ pub enum PacketProtocol {
     Ethernet,
     Arp,
     Ipv4,
+    Ipv6,
     Tcp,
     Udp,
     Http,
@@ -19,6 +20,7 @@ impl PacketProtocol {
             Self::Ethernet => "ethernet",
             Self::Arp => "arp",
             Self::Ipv4 => "ipv4",
+            Self::Ipv6 => "ipv6",
             Self::Tcp => "tcp",
             Self::Udp => "udp",
             Self::Http => "http",
@@ -55,6 +57,7 @@ pub struct PacketDetail {
     pub summary: PacketSummary,
     pub ethernet: Option<EthernetFrame>,
     pub ipv4: Option<Ipv4Packet>,
+    pub ipv6: Option<Ipv6Packet>,
     pub arp: Option<ArpPacket>,
     pub transport: Option<TransportPacket>,
     pub application: Option<ApplicationPacket>,
@@ -78,6 +81,16 @@ pub struct Ipv4Packet {
     pub ttl: u8,
     pub protocol: u8,
     pub checksum: u16,
+    pub src_ip: String,
+    pub dst_ip: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Ipv6Packet {
+    pub version: u8,
+    pub payload_length: u16,
+    pub next_header: u8,
+    pub hop_limit: u8,
     pub src_ip: String,
     pub dst_ip: String,
 }

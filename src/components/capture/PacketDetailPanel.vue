@@ -67,6 +67,28 @@ defineProps<{
           </dl>
         </article>
 
+        <article v-if="packet.ipv6" class="kv">
+          <h3>IPv6</h3>
+          <dl>
+            <div>
+              <dt>版本</dt>
+              <dd>{{ packet.ipv6.version }}</dd>
+            </div>
+            <div>
+              <dt>Hop Limit</dt>
+              <dd>{{ packet.ipv6.hop_limit }}</dd>
+            </div>
+            <div>
+              <dt>Next Header</dt>
+              <dd>{{ packet.ipv6.next_header }}</dd>
+            </div>
+            <div>
+              <dt>负载长度</dt>
+              <dd>{{ packet.ipv6.payload_length }}</dd>
+            </div>
+          </dl>
+        </article>
+
         <article v-if="packet.transport && 'tcp' in packet.transport" class="kv">
           <h3>TCP</h3>
           <dl>

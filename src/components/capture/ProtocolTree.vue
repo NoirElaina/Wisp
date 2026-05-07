@@ -48,6 +48,10 @@ function applicationLabel() {
       <strong>IPv4</strong>
       <span>{{ packet.ipv4.src_ip }} → {{ packet.ipv4.dst_ip }}</span>
     </li>
+    <li v-if="packet.ipv6">
+      <strong>IPv6</strong>
+      <span>{{ packet.ipv6.src_ip }} → {{ packet.ipv6.dst_ip }}</span>
+    </li>
     <li v-if="packet.arp">
       <strong>ARP</strong>
       <span>{{ packet.arp.src_ip }} 正在查询 {{ packet.arp.dst_ip }}</span>
