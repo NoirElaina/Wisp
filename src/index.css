@@ -7,8 +7,7 @@
 
 @layer base {
   .theme {
-    --font-heading: var(--font-sans)
-  }
+    --font-heading: var(--font-sans)}
   :root {
     --background: 0 0% 100%;
     --foreground: 240 10% 3.9%;
