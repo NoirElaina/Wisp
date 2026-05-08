@@ -27,7 +27,8 @@ use crate::model::packet::{
 use crate::model::session::TlsDecryptionConfig;
 
 use self::{
-    conversation::{update_tls_conversation, DirectionalFlowKey},
+    conversation::{tls_role_for_packet, update_tls_conversation, DirectionalFlowKey, TlsConversationData, TlsPeerRole},
+    decryption::DecryptedTlsRecord,
     reassembly::StreamObservation,
     runtime::ParserRuntime,
 };
@@ -72,6 +73,7 @@ pub fn parse_frame(
         icmpv6: None,
         transport: None,
         application: None,
+        decrypted_application: None,
         layers: Vec::new(),
         fields: Vec::new(),
         artifacts: Vec::new(),
@@ -321,37 +323,99 @@ fn parse_tcp(
 
                     if let Some(record_bytes) = tls_reassembly.messages.first().cloned() {
                         if let Some(tls_message) = tls::parse(&record_bytes) {
-                            let (_conversation_key, conversation) = runtime.conversations.tcp_data_mut(
-                                src_ip,
-                                transport.src_port,
-                                dst_ip,
-                                transport.dst_port,
-                                frame_no,
-                            );
-                            let flow = update_tls_conversation(conversation, &tls_message);
+                            let flow = {
+                                let (_conversation_key, conversation) =
+                                    runtime.conversations.tcp_data_mut(
+                                        src_ip,
+                                        transport.src_port,
+                                        dst_ip,
+                                        transport.dst_port,
+                                        frame_no,
+                                    );
+                                let flow = update_tls_conversation(
+                                    conversation,
+                                    &tls_message,
+                                    src_ip,
+                                    transport.src_port,
+                                    dst_ip,
+                                    transport.dst_port,
+                                );
+                                detail.decryption_state = Some(
+                                    runtime.decryption.inspect_tls(tls_config, &conversation.tls),
+                                );
+                                if tls_message.content_type == "ApplicationData" {
+                                    let decrypted = runtime.decryption.decrypt_tls13_record(
+                                        tls_config,
+                                        &mut conversation.tls,
+                                        src_ip,
+                                        transport.src_port,
+                                        &record_bytes,
+                                    );
+                                    detail.decryption_state = Some(decrypted.state.clone());
+                                    if let Some(record) = decrypted.record {
+                                        apply_decrypted_record(
+                                            &mut conversation.tls,
+                                            src_ip,
+                                            transport.src_port,
+                                            &record,
+                                            detail,
+                                        );
+                                    }
+                                }
+                                flow
+                            };
                             apply_tls(tls_message, flow, summary, detail);
+                            apply_decrypted_summary(summary, detail.decrypted_application.as_ref());
                             detail.reassembly_state = Some(
                                 runtime
                                     .reassembly
                                     .make_state(&directional_key, &tls_reassembly.snapshot),
                             );
-                            detail.decryption_state = runtime
-                                .decryption
-                                .inspect_tls(tls_config, &conversation.tls, "record");
                         }
                     } else if let Some(tls_message) = tls::parse(segment.payload) {
-                        let (_conversation_key, conversation) = runtime.conversations.tcp_data_mut(
-                            src_ip,
-                            transport.src_port,
-                            dst_ip,
-                            transport.dst_port,
-                            frame_no,
-                        );
-                        let flow = update_tls_conversation(conversation, &tls_message);
+                        let flow = {
+                            let (_conversation_key, conversation) =
+                                runtime.conversations.tcp_data_mut(
+                                    src_ip,
+                                    transport.src_port,
+                                    dst_ip,
+                                    transport.dst_port,
+                                    frame_no,
+                                );
+                            let flow = update_tls_conversation(
+                                conversation,
+                                &tls_message,
+                                src_ip,
+                                transport.src_port,
+                                dst_ip,
+                                transport.dst_port,
+                            );
+                            detail.decryption_state = Some(
+                                runtime.decryption.inspect_tls(tls_config, &conversation.tls),
+                            );
+                            if tls_message.content_type == "ApplicationData" {
+                                let decrypted = runtime.decryption.decrypt_tls13_record(
+                                    tls_config,
+                                    &mut conversation.tls,
+                                    src_ip,
+                                    transport.src_port,
+                                    segment.payload,
+                                );
+                                detail.decryption_state = Some(decrypted.state.clone());
+                                if let Some(record) = decrypted.record {
+                                    apply_decrypted_record(
+                                        &mut conversation.tls,
+                                        src_ip,
+                                        transport.src_port,
+                                        &record,
+                                        detail,
+                                    );
+                                }
+                            }
+                            flow
+                        };
                         apply_tls(tls_message, flow, summary, detail);
-                        detail.decryption_state = runtime
-                            .decryption
-                            .inspect_tls(tls_config, &conversation.tls, "record");
+                        apply_decrypted_summary(summary, detail.decrypted_application.as_ref());
                     } else if !segment.payload.is_empty() {
                         if let Some(http2) = http2::parse(segment.payload) {
                             apply_http2(http2, summary, detail);
@@ -521,6 +585,105 @@ fn apply_http2(http2: Http2Message, summary: &mut PacketSummary, detail: &mut Pa
     detail.application = Some(ApplicationPacket::Http2(http2));
 }
 
+fn apply_decrypted_record(
+    conversation: &mut TlsConversationData,
+    src_ip: &str,
+    src_port: u16,
+    record: &DecryptedTlsRecord,
+    detail: &mut PacketDetail,
+) {
+    detail.artifacts.push(PacketArtifact {
+        name: "Decrypted TLS Payload".to_string(),
+        content_type: "text/plain".to_string(),
+        value: format!(
+            "secret={}\ninner_content_type={}\n\n{}",
+            record.secret_label,
+            record.inner_content_type,
+            bytes_to_ascii(&record.payload)
+        ),
+    });
+
+    let Some(role) = tls_role_for_packet(conversation, src_ip, src_port) else {
+        return;
+    };
+
+    let buffer = match role {
+        TlsPeerRole::Client => &mut conversation.client_decrypted_buffer,
+        TlsPeerRole::Server => &mut conversation.server_decrypted_buffer,
+    };
+    buffer.extend_from_slice(&record.payload);
+
+    let alpn_hint = conversation
+        .alpn_protocols
+        .iter()
+        .find(|protocol| matches!(protocol.as_str(), "http/1.0" | "http/1.1" | "h2"))
+        .cloned()
+        .or_else(|| conversation.decrypted_protocol_hint.clone());
+
+    if should_try_http2(buffer, alpn_hint.as_deref()) {
+        if let Some((http2, consumed)) = http2::parse_message(buffer) {
+            buffer.drain(..consumed);
+            conversation.decrypted_protocol_hint = Some("h2".to_string());
+            apply_decrypted_application(
+                ApplicationPacket::Http2(http2.clone()),
+                detail,
+            );
+            return;
+        }
+    }
+
+    if let Some((http, consumed)) = http::parse_message(buffer) {
+        buffer.drain(..consumed);
+        conversation.decrypted_protocol_hint = Some("http/1.1".to_string());
+        apply_decrypted_application(
+            ApplicationPacket::Http(http.clone()),
+            detail,
+        );
+        return;
+    }
+
+    if !should_try_http2(buffer, alpn_hint.as_deref()) {
+        if let Some((http2, consumed)) = http2::parse_message(buffer) {
+            buffer.drain(..consumed);
+            conversation.decrypted_protocol_hint = Some("h2".to_string());
+            apply_decrypted_application(
+                ApplicationPacket::Http2(http2.clone()),
+                detail,
+            );
+        }
+    }
+}
+
+fn should_try_http2(buffer: &[u8], protocol_hint: Option<&str>) -> bool {
+    matches!(protocol_hint, Some("h2"))
+        || buffer.starts_with(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+}
+
+fn apply_decrypted_application(
+    application: ApplicationPacket,
+    detail: &mut PacketDetail,
+) {
+    detail.decrypted_application = Some(application);
+}
+
+fn apply_decrypted_summary(summary: &mut PacketSummary, application: Option<&ApplicationPacket>) {
+    let Some(application) = application else {
+        return;
+    };
+
+    if !matches!(summary.protocol, PacketProtocol::Https | PacketProtocol::Tls) {
+        return;
+    }
+
+    let hint = match application {
+        ApplicationPacket::Http(http) => http.start_line.clone(),
+        ApplicationPacket::Http2(http2) => describe_http2(http2),
+        _ => return,
+    };
+
+    summary.info = format!("{} -> {}", summary.info, hint);
+}
+
 fn apply_dns(dns_message: DnsMessage, summary: &mut PacketSummary, detail: &mut PacketDetail) {
     summary.protocol = PacketProtocol::Dns;
     summary.info = dns_info(&dns_message);
@@ -636,6 +799,7 @@ fn icmpv6_info(packet: &Icmpv6Packet) -> String {
 
 fn hydrate_protocol_tree(detail: &mut PacketDetail) {
     let mut layers = Vec::new();
+    let mut artifacts = std::mem::take(&mut detail.artifacts);
 
     if let Some(ethernet) = &detail.ethernet {
         layers.push(ProtocolLayerNode {
@@ -769,127 +933,15 @@ fn hydrate_protocol_tree(detail: &mut PacketDetail) {
     }
 
     if let Some(application) = &detail.application {
-        match application {
-            ApplicationPacket::Http(http) => {
-                layers.push(ProtocolLayerNode {
-                    name: "HTTP/1.x".to_string(),
-                    filter_key: "http".to_string(),
-                    summary: http.start_line.clone(),
-                    fields: vec![
-                        field("Start Line", "http.start_line", &http.start_line),
-                        field(
-                            "Content Length",
-                            "http.content_length",
-                            &http
-                                .content_length
-                                .map(|value| value.to_string())
-                                .unwrap_or_else(|| "—".to_string()),
-                        ),
-                        field(
-                            "Chunked",
-                            "http.transfer_encoding.chunked",
-                            if http.transfer_encoding_chunked { "true" } else { "false" },
-                        ),
-                    ],
-                });
+        append_application_model(application, false, detail, &mut layers, &mut artifacts);
+    }
 
-                if !http.body_preview.is_empty() {
-                    detail.artifacts.push(PacketArtifact {
-                        name: "HTTP Body Preview".to_string(),
-                        content_type: "text/plain".to_string(),
-                        value: http.body_preview.clone(),
-                    });
-                }
-            }
-            ApplicationPacket::Http2(http2) => {
-                layers.push(ProtocolLayerNode {
-                    name: "HTTP/2".to_string(),
-                    filter_key: "http2".to_string(),
-                    summary: if let Some(first_frame) = http2.frames.first() {
-                        format!("{} stream={}", first_frame.frame_type, first_frame.stream_id)
-                    } else {
-                        "Preface".to_string()
-                    },
-                    fields: http2
-                        .frames
-                        .iter()
-                        .enumerate()
-                        .map(|(index, frame)| FieldNode {
-                            name: format!("Frame {}", index + 1),
-                            filter_key: format!("http2.frame[{index}]"),
-                            value: frame.frame_type.clone(),
-                            children: vec![
-                                field("Type", "http2.type", &frame.frame_type),
-                                field("Length", "http2.length", &frame.length.to_string()),
-                                field("Flags", "http2.flags", &format!("0x{:02x}", frame.flags)),
-                                field("Stream", "http2.streamid", &frame.stream_id.to_string()),
-                            ],
-                        })
-                        .collect(),
-                });
-            }
-            ApplicationPacket::Tls(tls) => {
-                layers.push(ProtocolLayerNode {
-                    name: if detail.summary.protocol == PacketProtocol::Https {
-                        "TLS / HTTPS"
-                    } else {
-                        "TLS"
-                    }
-                    .to_string(),
-                    filter_key: "tls".to_string(),
-                    summary: detail.summary.info.clone(),
-                    fields: vec![
-                        field("Record Type", "tls.record.content_type", &tls.content_type),
-                        field("Version", "tls.record.version", &tls.version),
-                        field(
-                            "Handshake Type",
-                            "tls.handshake.type",
-                            tls.handshake_type.as_deref().unwrap_or("—"),
-                        ),
-                        field("SNI", "tls.handshake.extensions_server_name", tls.server_name.as_deref().unwrap_or("—")),
-                        field("ALPN", "tls.handshake.extensions_alpn", &tls.alpn_protocols.join(",")),
-                    ],
-                });
-            }
-            ApplicationPacket::Dns(dns) => {
-                layers.push(ProtocolLayerNode {
-                    name: "DNS".to_string(),
-                    filter_key: "dns".to_string(),
-                    summary: dns_info(dns),
-                    fields: vec![
-                        field("Transaction ID", "dns.id", &format!("0x{:04x}", dns.transaction_id)),
-                        field("Direction", "dns.flags.response", if dns.is_response { "response" } else { "query" }),
-                        field("Response Code", "dns.flags.rcode", &dns.rcode.to_string()),
-                    ],
-                });
-            }
-            ApplicationPacket::Quic(quic) => {
-                layers.push(ProtocolLayerNode {
-                    name: "QUIC".to_string(),
-                    filter_key: "quic".to_string(),
-                    summary: format!("{} {}", quic.packet_type, quic.version),
-                    fields: vec![
-                        field("Packet Type", "quic.packet_type", &quic.packet_type),
-                        field("Version", "quic.version", &quic.version),
-                        field("DCID", "quic.dcid", &quic.dcid),
-                        field("SCID", "quic.scid", &quic.scid),
-                    ],
-                });
-            }
-            ApplicationPacket::Unknown(unknown) => {
-                if !unknown.preview.is_empty() {
-                    detail.artifacts.push(PacketArtifact {
-                        name: "Payload Preview".to_string(),
-                        content_type: "text/plain".to_string(),
-                        value: unknown.preview.clone(),
-                    });
-                }
-            }
-        }
+    if let Some(application) = &detail.decrypted_application {
+        append_application_model(application, true, detail, &mut layers, &mut artifacts);
     }
 
     if let Some(reassembly_state) = &detail.reassembly_state {
-        detail.artifacts.push(PacketArtifact {
+        artifacts.push(PacketArtifact {
             name: "Reassembly".to_string(),
             content_type: "text/plain".to_string(),
             value: format!(
@@ -903,7 +955,7 @@ fn hydrate_protocol_tree(detail: &mut PacketDetail) {
     }
 
     if let Some(decryption_state) = &detail.decryption_state {
-        detail.artifacts.push(PacketArtifact {
+        artifacts.push(PacketArtifact {
             name: "Decryption".to_string(),
             content_type: "text/plain".to_string(),
             value: format!(
@@ -912,6 +964,68 @@ fn hydrate_protocol_tree(detail: &mut PacketDetail) {
                 decryption_state.secrets_loaded,
                 decryption_state.note.clone().unwrap_or_default()
             ),
+        });
+    }
+
+    if let Some(ApplicationPacket::Tls(tls)) = detail.application.as_ref() {
+        artifacts.push(PacketArtifact {
+            name: "Conversation Summary".to_string(),
+            content_type: "text/plain".to_string(),
+            value: format!(
+                "SNI={}\nALPN={}\nCipher={}\nDecrypted={}",
+                tls.server_name.as_deref().unwrap_or("—"),
+                if tls.alpn_protocols.is_empty() {
+                    "—".to_string()
+                } else {
+                    tls.alpn_protocols.join(", ")
+                },
+                tls.cipher_suite.as_deref().unwrap_or("—"),
+                if detail.decryption_state.as_ref().is_some_and(|state| state.status == "decrypted") {
+                    "yes"
+                } else {
+                    "no"
+                }
+            ),
+        });
+    }
+
+    if let Some(decryption_state) = &detail.decryption_state {
+        artifacts.push(PacketArtifact {
+            name: "TLS Readiness".to_string(),
+            content_type: "text/plain".to_string(),
+            value: format!(
+                "status={}\nsecrets_loaded={}\nprotocol_hint={}\nnote={}",
+                decryption_state.status,
+                decryption_state.secrets_loaded,
+                decryption_state.protocol_hint.as_deref().unwrap_or("—"),
+                decryption_state.note.as_deref().unwrap_or("—"),
+            ),
+        });
+    }
+
+    if let Some(application_hint) = detail
+        .decrypted_application
+        .as_ref()
+        .map(application_hint_text)
+        .or_else(|| detail.application.as_ref().map(application_hint_text))
+    {
+        artifacts.push(PacketArtifact {
+            name: "Application Hint".to_string(),
+            content_type: "text/plain".to_string(),
+            value: application_hint,
+        });
+    }
+
+    if let Some(http_summary) = detail
+        .decrypted_application
+        .as_ref()
+        .and_then(http_summary_text)
+        .or_else(|| detail.application.as_ref().and_then(http_summary_text))
+    {
+        artifacts.push(PacketArtifact {
+            name: "HTTP Summary".to_string(),
+            content_type: "text/plain".to_string(),
+            value: http_summary,
         });
     }
 
@@ -927,6 +1041,232 @@ fn hydrate_protocol_tree(detail: &mut PacketDetail) {
         })
         .collect();
     detail.layers = layers;
+    detail.artifacts = artifacts;
+}
+
+fn append_application_model(
+    application: &ApplicationPacket,
+    decrypted: bool,
+    detail: &PacketDetail,
+    layers: &mut Vec<ProtocolLayerNode>,
+    artifacts: &mut Vec<PacketArtifact>,
+) {
+    match application {
+        ApplicationPacket::Http(http) => {
+            layers.push(ProtocolLayerNode {
+                name: if decrypted {
+                    "Decrypted HTTP/1.x"
+                } else {
+                    "HTTP/1.x"
+                }
+                .to_string(),
+                filter_key: if decrypted {
+                    "tls.http"
+                } else {
+                    "http"
+                }
+                .to_string(),
+                summary: http.start_line.clone(),
+                fields: vec![
+                    field("Start Line", "http.start_line", &http.start_line),
+                    field(
+                        "Content Length",
+                        "http.content_length",
+                        &http
+                            .content_length
+                            .map(|value| value.to_string())
+                            .unwrap_or_else(|| "—".to_string()),
+                    ),
+                    field(
+                        "Chunked",
+                        "http.transfer_encoding.chunked",
+                        if http.transfer_encoding_chunked { "true" } else { "false" },
+                    ),
+                ],
+            });
+
+            if !http.body_preview.is_empty() {
+                artifacts.push(PacketArtifact {
+                    name: if decrypted {
+                        "Decrypted HTTP Body Preview"
+                    } else {
+                        "HTTP Body Preview"
+                    }
+                    .to_string(),
+                    content_type: "text/plain".to_string(),
+                    value: http.body_preview.clone(),
+                });
+            }
+        }
+        ApplicationPacket::Http2(http2) => {
+            layers.push(ProtocolLayerNode {
+                name: if decrypted { "Decrypted HTTP/2" } else { "HTTP/2" }.to_string(),
+                filter_key: if decrypted { "tls.http2" } else { "http2" }.to_string(),
+                summary: describe_http2(http2),
+                fields: http2
+                    .frames
+                    .iter()
+                    .enumerate()
+                    .map(|(index, frame)| FieldNode {
+                        name: format!("Frame {}", index + 1),
+                        filter_key: format!("http2.frame[{index}]"),
+                        value: frame.frame_type.clone(),
+                        children: vec![
+                            field("Type", "http2.type", &frame.frame_type),
+                            field("Length", "http2.length", &frame.length.to_string()),
+                            field("Flags", "http2.flags", &format!("0x{:02x}", frame.flags)),
+                            field("Stream", "http2.streamid", &frame.stream_id.to_string()),
+                        ],
+                    })
+                    .collect(),
+            });
+        }
+        ApplicationPacket::Tls(tls) => {
+            layers.push(ProtocolLayerNode {
+                name: if detail.summary.protocol == PacketProtocol::Https {
+                    "TLS / HTTPS"
+                } else {
+                    "TLS"
+                }
+                .to_string(),
+                filter_key: "tls".to_string(),
+                summary: detail.summary.info.clone(),
+                fields: vec![
+                    field("Record Type", "tls.record.content_type", &tls.content_type),
+                    field("Version", "tls.record.version", &tls.version),
+                    field(
+                        "Handshake Type",
+                        "tls.handshake.type",
+                        tls.handshake_type.as_deref().unwrap_or("—"),
+                    ),
+                    field(
+                        "SNI",
+                        "tls.handshake.extensions_server_name",
+                        tls.server_name.as_deref().unwrap_or("—"),
+                    ),
+                    field(
+                        "ALPN",
+                        "tls.handshake.extensions_alpn",
+                        &tls.alpn_protocols.join(","),
+                    ),
+                ],
+            });
+        }
+        ApplicationPacket::Dns(dns) => {
+            layers.push(ProtocolLayerNode {
+                name: "DNS".to_string(),
+                filter_key: "dns".to_string(),
+                summary: dns_info(dns),
+                fields: vec![
+                    field("Transaction ID", "dns.id", &format!("0x{:04x}", dns.transaction_id)),
+                    field(
+                        "Direction",
+                        "dns.flags.response",
+                        if dns.is_response { "response" } else { "query" },
+                    ),
+                    field("Response Code", "dns.flags.rcode", &dns.rcode.to_string()),
+                ],
+            });
+        }
+        ApplicationPacket::Quic(quic) => {
+            layers.push(ProtocolLayerNode {
+                name: "QUIC".to_string(),
+                filter_key: "quic".to_string(),
+                summary: format!("{} {}", quic.packet_type, quic.version),
+                fields: vec![
+                    field("Packet Type", "quic.packet_type", &quic.packet_type),
+                    field("Version", "quic.version", &quic.version),
+                    field("DCID", "quic.dcid", &quic.dcid),
+                    field("SCID", "quic.scid", &quic.scid),
+                ],
+            });
+        }
+        ApplicationPacket::Unknown(unknown) => {
+            if !unknown.preview.is_empty() {
+                artifacts.push(PacketArtifact {
+                    name: if decrypted {
+                        "Decrypted Application Data"
+                    } else {
+                        "Payload Preview"
+                    }
+                    .to_string(),
+                    content_type: "text/plain".to_string(),
+                    value: unknown.preview.clone(),
+                });
+            }
+        }
+    }
+}
+
+fn describe_http2(http2: &Http2Message) -> String {
+    if let Some(first_frame) = http2.frames.first() {
+        format!("{} stream={}", first_frame.frame_type, first_frame.stream_id)
+    } else if http2.has_preface {
+        "Preface".to_string()
+    } else {
+        "HTTP/2".to_string()
+    }
+}
+
+fn application_hint_text(application: &ApplicationPacket) -> String {
+    match application {
+        ApplicationPacket::Http(http) => format!("HTTP/1.x {}", http.start_line),
+        ApplicationPacket::Http2(http2) => format!("HTTP/2 {}", describe_http2(http2)),
+        ApplicationPacket::Tls(tls) => format!(
+            "TLS {} {}",
+            tls.content_type,
+            if tls.alpn_protocols.is_empty() {
+                "—".to_string()
+            } else {
+                tls.alpn_protocols.join(", ")
+            }
+        ),
+        ApplicationPacket::Dns(dns) => dns_info(dns),
+        ApplicationPacket::Quic(quic) => format!("QUIC {} {}", quic.packet_type, quic.version),
+        ApplicationPacket::Unknown(unknown) => {
+            format!("Unknown {}", unknown.preview.chars().take(48).collect::<String>())
+        }
+    }
+}
+
+fn http_summary_text(application: &ApplicationPacket) -> Option<String> {
+    match application {
+        ApplicationPacket::Http(http) => Some(format!(
+            "start_line={}\ncontent_length={}\nchunked={}\nbody_preview={}",
+            http.start_line,
+            http.content_length
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "—".to_string()),
+            http.transfer_encoding_chunked,
+            if http.body_preview.is_empty() {
+                "—".to_string()
+            } else {
+                http.body_preview.clone()
+            }
+        )),
+        ApplicationPacket::Http2(http2) => Some(format!(
+            "stream_count={}\nframe_count={}\nfirst_frames={}",
+            http2
+                .frames
+                .iter()
+                .map(|frame| frame.stream_id)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            http2.frames.len(),
+            if http2.frames.is_empty() {
+                "—".to_string()
+            } else {
+                http2
+                    .frames
+                    .iter()
+                    .take(4)
+                    .map(|frame| format!("{}#{}", frame.frame_type, frame.stream_id))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+        )),
+        _ => None,
+    }
 }
 
 fn field(name: &str, filter_key: &str, value: &str) -> FieldNode {

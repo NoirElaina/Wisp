@@ -9,6 +9,7 @@ import type {
   CaptureSessionMeta,
   NetworkInterface,
   StartCaptureRequest,
+  TlsDecryptionConfig,
 } from "../types/session";
 import type { CaptureStats } from "../types/stats";
 
@@ -33,6 +34,13 @@ const state = reactive({
     only_malformed: false,
   } as FilterState,
   stats: null as CaptureStats | null,
+  tlsDecryptionConfig: {
+    enabled: false,
+    keylog_path: null,
+    reload_on_change: false,
+    strict_secret_match: true,
+  } as TlsDecryptionConfig,
+  savingTlsDecryption: false,
   errorMessage: "",
 });
 
@@ -58,6 +66,7 @@ export function useCaptureStore() {
 
     await refreshInterfaces();
     await refreshSessions();
+    await refreshTlsDecryptionConfig();
     await restoreRuntimeState();
 
     if (state.activeSession) {
@@ -149,6 +158,26 @@ export function useCaptureStore() {
     await loadSelectedDetail(packetId);
   }
 
+  async function refreshTlsDecryptionConfig() {
+    state.tlsDecryptionConfig = await invoke<TlsDecryptionConfig>("get_tls_decryption_config");
+  }
+
+  async function saveTlsDecryptionConfig(config: TlsDecryptionConfig) {
+    state.savingTlsDecryption = true;
+    clearError();
+
+    try {
+      state.tlsDecryptionConfig = await invoke<TlsDecryptionConfig>("set_tls_decryption_config", {
+        config,
+      });
+    } catch (error) {
+      setErrorMessage(normalizeError(error));
+      throw error;
+    } finally {
+      state.savingTlsDecryption = false;
+    }
+  }
+
   function setSelectedInterface(name: string) {
     state.selectedInterface = name;
   }
@@ -203,6 +232,8 @@ export function useCaptureStore() {
     setSelectedInterface,
     startCapture,
     stopCapture,
+    refreshTlsDecryptionConfig,
+    saveTlsDecryptionConfig,
     toggleProtocol,
     setIpFilter,
     setPortFilter,

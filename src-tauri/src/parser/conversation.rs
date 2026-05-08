@@ -18,6 +18,18 @@ pub struct DirectionalFlowKey {
     pub dst_port: u16,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FlowEndpoint {
+    pub ip: String,
+    pub port: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TlsPeerRole {
+    Client,
+    Server,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct TlsConversationData {
     pub is_https: bool,
@@ -27,6 +39,14 @@ pub struct TlsConversationData {
     pub client_random: Option<String>,
     pub server_random: Option<String>,
     pub decrypted_protocol_hint: Option<String>,
+    pub client_endpoint: Option<FlowEndpoint>,
+    pub server_endpoint: Option<FlowEndpoint>,
+    pub client_handshake_seq: u64,
+    pub server_handshake_seq: u64,
+    pub client_application_seq: u64,
+    pub server_application_seq: u64,
+    pub client_decrypted_buffer: Vec<u8>,
+    pub server_decrypted_buffer: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -98,6 +118,19 @@ impl DirectionalFlowKey {
     }
 }
 
+impl FlowEndpoint {
+    pub fn new(ip: &str, port: u16) -> Self {
+        Self {
+            ip: ip.to_string(),
+            port,
+        }
+    }
+
+    pub fn matches(&self, ip: &str, port: u16) -> bool {
+        self.ip == ip && self.port == port
+    }
+}
+
 impl ConversationStore {
     pub fn tcp_data_mut(
         &mut self,
@@ -153,7 +186,25 @@ impl ConversationStore {
 pub fn update_tls_conversation(
     conversation: &mut TcpConversationData,
     message: &TlsMessage,
+    src_ip: &str,
+    src_port: u16,
+    dst_ip: &str,
+    dst_port: u16,
 ) -> TlsConversationData {
+    if matches!(message.handshake_type.as_deref(), Some("ClientHello")) {
+        conversation.tls.client_endpoint = Some(FlowEndpoint::new(src_ip, src_port));
+        if conversation.tls.server_endpoint.is_none() {
+            conversation.tls.server_endpoint = Some(FlowEndpoint::new(dst_ip, dst_port));
+        }
+    }
+
+    if matches!(message.handshake_type.as_deref(), Some("ServerHello")) {
+        conversation.tls.server_endpoint = Some(FlowEndpoint::new(src_ip, src_port));
+        if conversation.tls.client_endpoint.is_none() {
+            conversation.tls.client_endpoint = Some(FlowEndpoint::new(dst_ip, dst_port));
+        }
+    }
+
     if let Some(server_name) = &message.server_name {
         conversation.tls.server_name = Some(server_name.clone());
     }
@@ -194,4 +245,28 @@ pub fn update_tls_conversation(
     }
 
     conversation.tls.clone()
+}
+
+pub fn tls_role_for_packet(
+    conversation: &TlsConversationData,
+    src_ip: &str,
+    src_port: u16,
+) -> Option<TlsPeerRole> {
+    if conversation
+        .client_endpoint
+        .as_ref()
+        .is_some_and(|endpoint| endpoint.matches(src_ip, src_port))
+    {
+        return Some(TlsPeerRole::Client);
+    }
+
+    if conversation
+        .server_endpoint
+        .as_ref()
+        .is_some_and(|endpoint| endpoint.matches(src_ip, src_port))
+    {
+        return Some(TlsPeerRole::Server);
+    }
+
+    None
 }

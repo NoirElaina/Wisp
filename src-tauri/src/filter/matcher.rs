@@ -57,7 +57,56 @@ fn matches_all(detail: &PacketDetail, filter: &FilterState) -> bool {
                 detail.raw.ascii_preview.to_ascii_lowercase(),
             ];
 
-            match detail.application.as_ref() {
+            append_application_corpus(&mut corpus, detail.application.as_ref());
+            append_application_corpus(&mut corpus, detail.decrypted_application.as_ref());
+
+            for artifact in &detail.artifacts {
+                corpus.push(artifact.name.to_ascii_lowercase());
+                corpus.push(artifact.value.to_ascii_lowercase());
+            }
+
+            if let Some(reassembly_state) = detail.reassembly_state.as_ref() {
+                corpus.push(reassembly_state.status.to_ascii_lowercase());
+                if let Some(note) = &reassembly_state.note {
+                    corpus.push(note.to_ascii_lowercase());
+                }
+            }
+
+            if let Some(decryption_state) = detail.decryption_state.as_ref() {
+                corpus.push(decryption_state.status.to_ascii_lowercase());
+                if let Some(protocol_hint) = &decryption_state.protocol_hint {
+                    corpus.push(protocol_hint.to_ascii_lowercase());
+                }
+                if let Some(note) = &decryption_state.note {
+                    corpus.push(note.to_ascii_lowercase());
+                }
+                if let Some(keylog_path) = &decryption_state.keylog_path {
+                    corpus.push(keylog_path.to_ascii_lowercase());
+                }
+            }
+
+            if let Some(icmp) = detail.icmp.as_ref() {
+                corpus.push(icmp.description.to_ascii_lowercase());
+            }
+
+            if let Some(icmpv6) = detail.icmpv6.as_ref() {
+                corpus.push(icmpv6.description.to_ascii_lowercase());
+                if let Some(target_address) = &icmpv6.target_address {
+                    corpus.push(target_address.to_ascii_lowercase());
+                }
+            }
+
+            if !corpus.into_iter().any(|value| value.contains(&needle)) {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+fn append_application_corpus(corpus: &mut Vec<String>, application: Option<&ApplicationPacket>) {
+    match application {
                 Some(ApplicationPacket::Http(http)) => {
                     corpus.push(http.start_line.to_ascii_lowercase());
                     corpus.push(http.raw_text.to_ascii_lowercase());
@@ -123,23 +172,4 @@ fn matches_all(detail: &PacketDetail, filter: &FilterState) -> bool {
                 }
                 None => {}
             }
-
-            if let Some(icmp) = detail.icmp.as_ref() {
-                corpus.push(icmp.description.to_ascii_lowercase());
-            }
-
-            if let Some(icmpv6) = detail.icmpv6.as_ref() {
-                corpus.push(icmpv6.description.to_ascii_lowercase());
-                if let Some(target_address) = &icmpv6.target_address {
-                    corpus.push(target_address.to_ascii_lowercase());
-                }
-            }
-
-            if !corpus.into_iter().any(|value| value.contains(&needle)) {
-                return false;
-            }
-        }
-    }
-
-    true
 }

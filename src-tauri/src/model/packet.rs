@@ -75,6 +75,7 @@ pub struct PacketDetail {
     pub icmpv6: Option<Icmpv6Packet>,
     pub transport: Option<TransportPacket>,
     pub application: Option<ApplicationPacket>,
+    pub decrypted_application: Option<ApplicationPacket>,
     pub layers: Vec<ProtocolLayerNode>,
     pub fields: Vec<FieldNode>,
     pub artifacts: Vec<PacketArtifact>,

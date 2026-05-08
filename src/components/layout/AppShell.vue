@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { toast } from "vue-sonner";
+import type { TlsDecryptionConfig } from "../../types/session";
 
 import { Separator } from "@/components/ui/separator";
 import {
@@ -19,12 +20,14 @@ import PacketTable from "../capture/PacketTable.vue";
 import ProtocolDonut from "../capture/ProtocolDonut.vue";
 import SearchBox from "../capture/SearchBox.vue";
 import TimelineChart from "../capture/TimelineChart.vue";
+import TlsDecryptionSheet from "../capture/TlsDecryptionSheet.vue";
 import SideStats from "./SideStats.vue";
 import SessionHistoryPanel from "./SessionHistoryPanel.vue";
 import TopBar from "./TopBar.vue";
 
 const store = useCaptureStore();
 const historyOpen = ref(false);
+const decryptOpen = ref(false);
 
 const portFilterValue = computed(() =>
   store.state.filter.port ? String(store.state.filter.port) : "",
@@ -58,6 +61,14 @@ function openHistory() {
 function closeHistory() {
   historyOpen.value = false;
 }
+
+function openDecrypt() {
+  decryptOpen.value = true;
+}
+
+async function saveTlsDecryptionConfig(config: TlsDecryptionConfig) {
+  await store.saveTlsDecryptionConfig(config);
+}
 </script>
 
 <template>
@@ -88,6 +99,7 @@ function closeHistory() {
           :busy="store.state.busy"
           @start="store.startCapture"
           @stop="store.stopCapture"
+          @decrypt="openDecrypt"
           @history="openHistory"
         />
       </div>
@@ -155,6 +167,22 @@ function closeHistory() {
               void store.loadSession(sessionId);
             }
           "
+        />
+      </SheetContent>
+    </Sheet>
+
+    <Sheet :open="decryptOpen" @update:open="decryptOpen = $event">
+      <SheetContent side="right" class="w-[540px] max-w-[100vw] bg-slate-50/95 px-5 py-6 backdrop-blur-xl">
+        <SheetHeader class="space-y-1 pb-4">
+          <p class="drawer-eyebrow">解密</p>
+          <SheetTitle>TLS 配置</SheetTitle>
+        </SheetHeader>
+        <Separator class="mb-4" />
+        <TlsDecryptionSheet
+          :config="store.state.tlsDecryptionConfig"
+          :current-state="store.state.selectedDetail?.decryption_state ?? null"
+          :saving="store.state.savingTlsDecryption"
+          @save="saveTlsDecryptionConfig"
         />
       </SheetContent>
     </Sheet>

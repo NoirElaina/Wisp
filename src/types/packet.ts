@@ -249,6 +249,7 @@ export interface PacketDetail {
   icmpv6: Icmpv6Packet | null
   transport: TransportPacket | null
   application: ApplicationPacket | null
+  decrypted_application: ApplicationPacket | null
   layers: ProtocolLayerNode[]
   fields: FieldNode[]
   artifacts: PacketArtifact[]

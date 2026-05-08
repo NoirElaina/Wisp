@@ -203,6 +203,29 @@ function dnsFlagsLabel(rcode: number) {
         </div>
       </section>
 
+      <section v-if="packet.decrypted_application && 'http' in packet.decrypted_application" class="overflow-hidden rounded-2xl border border-emerald-200/80 bg-emerald-50/60 shadow-sm">
+        <header class="m-0 border-b border-emerald-200/80 px-4 py-3 text-[13px] font-semibold text-emerald-950">解密后的 HTTP/1.x</header>
+        <pre class="m-0 overflow-auto whitespace-pre-wrap px-4 py-4 font-mono text-xs leading-[1.55]">{{ packet.decrypted_application.http.raw_text }}</pre>
+      </section>
+
+      <section v-if="packet.decrypted_application && 'http2' in packet.decrypted_application" class="overflow-hidden rounded-2xl border border-emerald-200/80 bg-emerald-50/60 shadow-sm">
+        <header class="m-0 border-b border-emerald-200/80 px-4 py-3 text-[13px] font-semibold text-emerald-950">解密后的 HTTP/2</header>
+        <div class="grid gap-3 p-4">
+          <p class="m-0 text-xs text-emerald-800">
+            {{ packet.decrypted_application.http2.has_preface ? "已识别客户端 Preface。" : "已识别 HTTP/2 帧。" }}
+          </p>
+          <ul class="m-0 grid gap-2 p-0 list-none">
+            <li
+              v-for="(frame, index) in packet.decrypted_application.http2.frames"
+              :key="`${frame.frame_type}:${frame.stream_id}:${index}`"
+              class="rounded-xl border border-emerald-200/80 bg-white/80 px-3 py-2 text-xs text-emerald-900"
+            >
+              {{ frame.frame_type }} · stream {{ frame.stream_id }} · len {{ frame.length }} · flags 0x{{ frame.flags.toString(16).padStart(2, "0") }}
+            </li>
+          </ul>
+        </div>
+      </section>
+
       <section v-if="packet.application && 'dns' in packet.application" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
         <header class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">DNS</header>
         <div class="grid gap-4 p-4 md:grid-cols-2">

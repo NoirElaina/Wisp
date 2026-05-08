@@ -11,6 +11,7 @@ defineEmits<{
   (event: "start"): void
   (event: "stop"): void
   (event: "history"): void
+  (event: "decrypt"): void
 }>();
 </script>
 
@@ -20,6 +21,7 @@ defineEmits<{
       开始捕获
     </Button>
     <Button variant="outline" :disabled="!running || busy" @click="$emit('stop')">停止</Button>
+    <Button variant="outline" :disabled="busy" @click="$emit('decrypt')">解密</Button>
     <Button variant="secondary" :disabled="busy" @click="$emit('history')">历史</Button>
   </div>
 </template>
