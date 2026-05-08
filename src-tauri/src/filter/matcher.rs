@@ -62,6 +62,20 @@ fn matches_all(detail: &PacketDetail, filter: &FilterState) -> bool {
                     corpus.push(http.start_line.to_ascii_lowercase());
                     corpus.push(http.raw_text.to_ascii_lowercase());
                 }
+                Some(ApplicationPacket::Http2(http2)) => {
+                    corpus.push(if http2.has_preface {
+                        "preface".to_string()
+                    } else {
+                        "frames".to_string()
+                    });
+                    corpus.extend(http2.frames.iter().flat_map(|frame| {
+                        [
+                            frame.frame_type.to_ascii_lowercase(),
+                            frame.stream_id.to_string(),
+                            frame.length.to_string(),
+                        ]
+                    }));
+                }
                 Some(ApplicationPacket::Tls(tls)) => {
                     corpus.push(tls.content_type.to_ascii_lowercase());
                     corpus.push(tls.version.to_ascii_lowercase());

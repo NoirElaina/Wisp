@@ -31,6 +31,8 @@ export function formatProtocol(protocol: string): string {
       return "QUIC"
     case "dns":
       return "DNS"
+    case "http2":
+      return "HTTP/2"
     default:
       return protocol.toUpperCase()
   }

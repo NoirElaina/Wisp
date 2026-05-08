@@ -4,6 +4,7 @@ export type PacketProtocol =
   | "ipv4"
   | "ipv6"
   | "dns"
+  | "http2"
   | "icmp"
   | "icmpv6"
   | "https"
@@ -123,7 +124,22 @@ export interface HttpMessage {
   start_line: string
   headers: HeaderField[]
   body_preview: string
+  content_length: number | null
+  transfer_encoding_chunked: boolean
+  consumed_bytes: number
   raw_text: string
+}
+
+export interface Http2Frame {
+  frame_type: string
+  length: number
+  flags: number
+  stream_id: number
+}
+
+export interface Http2Message {
+  has_preface: boolean
+  frames: Http2Frame[]
 }
 
 export interface TlsMessage {
@@ -172,10 +188,48 @@ export interface UnknownPayload {
 
 export type ApplicationPacket =
   | { http: HttpMessage }
+  | { http2: Http2Message }
   | { tls: TlsMessage }
   | { dns: DnsMessage }
   | { quic: QuicMessage }
   | { unknown: UnknownPayload }
+
+export interface FieldNode {
+  name: string
+  filter_key: string
+  value: string
+  children: FieldNode[]
+}
+
+export interface ProtocolLayerNode {
+  name: string
+  filter_key: string
+  summary: string
+  fields: FieldNode[]
+}
+
+export interface PacketArtifact {
+  name: string
+  content_type: string
+  value: string
+}
+
+export interface ReassemblyState {
+  status: string
+  stream_key: string
+  buffered_bytes: number
+  missing_ranges: number
+  note: string | null
+}
+
+export interface DecryptionState {
+  attempted: boolean
+  secrets_loaded: boolean
+  status: string
+  protocol_hint: string | null
+  note: string | null
+  keylog_path: string | null
+}
 
 export interface RawPacketData {
   captured_len: number
@@ -195,6 +249,11 @@ export interface PacketDetail {
   icmpv6: Icmpv6Packet | null
   transport: TransportPacket | null
   application: ApplicationPacket | null
+  layers: ProtocolLayerNode[]
+  fields: FieldNode[]
+  artifacts: PacketArtifact[]
+  reassembly_state: ReassemblyState | null
+  decryption_state: DecryptionState | null
   raw: RawPacketData
   parse_notes: string[]
   is_malformed: boolean

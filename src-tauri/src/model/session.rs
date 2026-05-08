@@ -31,6 +31,8 @@ pub struct CaptureRuntimeState {
 pub struct TlsDecryptionConfig {
     pub enabled: bool,
     pub keylog_path: Option<String>,
+    pub reload_on_change: bool,
+    pub strict_secret_match: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -12,7 +12,7 @@ use crate::{
         source::LiveCaptureSource,
     },
     filter::matcher,
-    model::{filter::FilterState, session::CaptureSessionMeta},
+    model::{filter::FilterState, session::{CaptureSessionMeta, TlsDecryptionConfig}},
     parser,
     stats::bandwidth::StatsAccumulator,
     store::replay::ReplayStore,
@@ -21,6 +21,7 @@ use crate::{
 pub fn spawn(
     app: AppHandle,
     store: Arc<Mutex<ReplayStore>>,
+    tls_decryption: Arc<Mutex<TlsDecryptionConfig>>,
     capture: &mut CaptureController,
     session: CaptureSessionMeta,
     interface_name: String,
@@ -38,7 +39,7 @@ pub fn spawn(
         .spawn(move || {
             let mut frame_no = 1u64;
             let mut stats = StatsAccumulator::new(session_id.clone());
-            let mut flow_tracker = parser::stream::TcpFlowTracker::default();
+            let mut runtime = parser::runtime::ParserRuntime::default();
 
             while !thread_stop.load(std::sync::atomic::Ordering::Relaxed) {
                 let raw = match source.next() {
@@ -52,8 +53,24 @@ pub fn spawn(
                     }
                 };
 
-                let mut detail =
-                    parser::parse_frame(0, session_id.clone(), frame_no, raw, &mut flow_tracker);
+                let tls_config = tls_decryption
+                    .lock()
+                    .map(|config| config.clone())
+                    .unwrap_or(TlsDecryptionConfig {
+                        enabled: false,
+                        keylog_path: None,
+                        reload_on_change: false,
+                        strict_secret_match: true,
+                    });
+
+                let mut detail = parser::parse_frame(
+                    0,
+                    session_id.clone(),
+                    frame_no,
+                    raw,
+                    &mut runtime,
+                    &tls_config,
+                );
                 detail.summary.matched = matcher::matches_filter(&detail, filter.as_ref());
                 stats.record(&detail.summary);
 

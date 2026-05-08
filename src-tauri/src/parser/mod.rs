@@ -1,25 +1,36 @@
 pub mod arp;
+pub mod conversation;
 pub mod cursor;
+pub mod decryption;
 pub mod dns;
 pub mod ethernet;
 pub mod http;
+pub mod http2;
 pub mod icmp;
 pub mod icmpv6;
 pub mod ipv4;
 pub mod ipv6;
 pub mod quic;
+pub mod reassembly;
+pub mod runtime;
+#[allow(dead_code)]
 pub mod stream;
 pub mod tcp;
 pub mod tls;
 pub mod udp;
 
 use crate::model::packet::{
-    ApplicationPacket, DnsMessage, HttpMessage, IcmpPacket, Icmpv6Packet, PacketDetail,
-    PacketProtocol, PacketSummary, QuicMessage, RawPacketData, TlsMessage, TransportPacket,
-    UnknownPayload,
+    ApplicationPacket, DecryptionState, DnsMessage, FieldNode, Http2Message, HttpMessage,
+    IcmpPacket, Icmpv6Packet, PacketArtifact, PacketDetail, PacketProtocol, PacketSummary,
+    ProtocolLayerNode, QuicMessage, RawPacketData, TlsMessage, TransportPacket, UnknownPayload,
 };
+use crate::model::session::TlsDecryptionConfig;
 
-use self::stream::{TcpFlowObservation, TcpFlowTracker, TlsFlowObservation};
+use self::{
+    conversation::{update_tls_conversation, DirectionalFlowKey},
+    reassembly::StreamObservation,
+    runtime::ParserRuntime,
+};
 
 pub struct RawFrame {
     pub timestamp_ms: i64,
@@ -32,7 +43,8 @@ pub fn parse_frame(
     session_id: String,
     frame_no: u64,
     raw: RawFrame,
-    flow_tracker: &mut TcpFlowTracker,
+    runtime: &mut ParserRuntime,
+    tls_config: &TlsDecryptionConfig,
 ) -> PacketDetail {
     let raw_bytes = raw.bytes;
     let mut summary = PacketSummary {
@@ -60,6 +72,11 @@ pub fn parse_frame(
         icmpv6: None,
         transport: None,
         application: None,
+        layers: Vec::new(),
+        fields: Vec::new(),
+        artifacts: Vec::new(),
+        reassembly_state: None,
+        decryption_state: None,
         raw: RawPacketData {
             captured_len: raw_bytes.len() as u32,
             original_len: raw.original_len,
@@ -77,8 +94,22 @@ pub fn parse_frame(
             detail.ethernet = Some(frame.frame.clone());
 
             match frame.frame.ether_type {
-                0x0800 => parse_ipv4(frame.payload, &mut summary, &mut detail, flow_tracker),
-                0x86dd => parse_ipv6(frame.payload, &mut summary, &mut detail, flow_tracker),
+                0x0800 => parse_ipv4(
+                    frame.payload,
+                    frame_no,
+                    &mut summary,
+                    &mut detail,
+                    runtime,
+                    tls_config,
+                ),
+                0x86dd => parse_ipv6(
+                    frame.payload,
+                    frame_no,
+                    &mut summary,
+                    &mut detail,
+                    runtime,
+                    tls_config,
+                ),
                 0x0806 => match arp::parse(frame.payload) {
                     Ok(arp) => {
                         summary.protocol = PacketProtocol::Arp;
@@ -112,14 +143,17 @@ pub fn parse_frame(
     detail.summary = summary.clone();
     detail.id = summary.id;
     detail.summary.id = summary.id;
+    hydrate_protocol_tree(&mut detail);
     detail
 }
 
 fn parse_ipv4(
     payload: &[u8],
+    frame_no: u64,
     summary: &mut PacketSummary,
     detail: &mut PacketDetail,
-    flow_tracker: &mut TcpFlowTracker,
+    runtime: &mut ParserRuntime,
+    tls_config: &TlsDecryptionConfig,
 ) {
     match ipv4::parse(payload) {
         Ok(packet) => {
@@ -131,8 +165,25 @@ fn parse_ipv4(
 
             match packet.packet.protocol {
                 1 => parse_icmp(packet.payload, summary, detail),
-                6 => parse_tcp(packet.payload, &src_ip, &dst_ip, summary, detail, flow_tracker),
-                17 => parse_udp(packet.payload, &src_ip, &dst_ip, summary, detail, flow_tracker),
+                6 => parse_tcp(
+                    packet.payload,
+                    frame_no,
+                    &src_ip,
+                    &dst_ip,
+                    summary,
+                    detail,
+                    runtime,
+                    tls_config,
+                ),
+                17 => parse_udp(
+                    packet.payload,
+                    frame_no,
+                    &src_ip,
+                    &dst_ip,
+                    summary,
+                    detail,
+                    runtime,
+                ),
                 protocol => {
                     summary.protocol = PacketProtocol::Ipv4;
                     summary.info = format!("IPv4 protocol {}", protocol);
@@ -151,9 +202,11 @@ fn parse_ipv4(
 
 fn parse_ipv6(
     payload: &[u8],
+    frame_no: u64,
     summary: &mut PacketSummary,
     detail: &mut PacketDetail,
-    flow_tracker: &mut TcpFlowTracker,
+    runtime: &mut ParserRuntime,
+    tls_config: &TlsDecryptionConfig,
 ) {
     match ipv6::parse(payload) {
         Ok(packet) => {
@@ -165,8 +218,25 @@ fn parse_ipv6(
 
             match packet.packet.next_header {
                 58 => parse_icmpv6(packet.payload, summary, detail),
-                6 => parse_tcp(packet.payload, &src_ip, &dst_ip, summary, detail, flow_tracker),
-                17 => parse_udp(packet.payload, &src_ip, &dst_ip, summary, detail, flow_tracker),
+                6 => parse_tcp(
+                    packet.payload,
+                    frame_no,
+                    &src_ip,
+                    &dst_ip,
+                    summary,
+                    detail,
+                    runtime,
+                    tls_config,
+                ),
+                17 => parse_udp(
+                    packet.payload,
+                    frame_no,
+                    &src_ip,
+                    &dst_ip,
+                    summary,
+                    detail,
+                    runtime,
+                ),
                 next_header => {
                     summary.protocol = PacketProtocol::Ipv6;
                     summary.info = format!("IPv6 next header {}", next_header);
@@ -185,11 +255,13 @@ fn parse_ipv6(
 
 fn parse_tcp(
     payload: &[u8],
+    frame_no: u64,
     src_ip: &str,
     dst_ip: &str,
     summary: &mut PacketSummary,
     detail: &mut PacketDetail,
-    flow_tracker: &mut TcpFlowTracker,
+    runtime: &mut ParserRuntime,
+    tls_config: &TlsDecryptionConfig,
 ) {
     match tcp::parse(payload) {
         Ok(segment) => {
@@ -201,34 +273,116 @@ fn parse_tcp(
 
             let transport = segment.segment.clone();
 
-            if let Some(http) = http::parse(segment.payload) {
+            let directional_key = DirectionalFlowKey::new(
+                src_ip,
+                transport.src_port,
+                dst_ip,
+                transport.dst_port,
+            );
+
+            if let Some(http2) = http2::parse(segment.payload) {
+                apply_http2(http2, summary, detail);
+            } else if let Some(http) = http::parse(segment.payload) {
                 apply_http(http, summary, detail);
-            } else if let Some(tls) = tls::parse(segment.payload) {
-                let flow = flow_tracker.observe_tls(TlsFlowObservation {
-                    src_ip: src_ip.to_string(),
-                    dst_ip: dst_ip.to_string(),
-                    src_port: transport.src_port,
-                    dst_port: transport.dst_port,
-                    fin: transport.flags.fin,
-                    rst: transport.flags.rst,
-                    message: &tls,
+            } else {
+                let http_reassembly = runtime.reassembly.reassemble_stream_with_boundary(
+                    StreamObservation {
+                        key: directional_key.clone(),
+                        seq: transport.seq,
+                        fin: transport.flags.fin,
+                        rst: transport.flags.rst,
+                        payload: segment.payload,
+                    },
+                    http::parse_message,
+                );
+
+                if let Some(http) = http_reassembly.messages.first().cloned() {
+                    apply_http(http, summary, detail);
+                    detail
+                        .parse_notes
+                        .push("HTTP 通过 TCP 重组识别".to_string());
+                    detail.reassembly_state = Some(
+                        runtime
+                            .reassembly
+                            .make_state(&directional_key, &http_reassembly.snapshot),
+                    );
+                } else {
+                    let tls_reassembly = runtime.reassembly.reassemble_by_known_len(
+                        StreamObservation {
+                            key: directional_key.clone(),
+                            seq: transport.seq,
+                            fin: transport.flags.fin,
+                            rst: transport.flags.rst,
+                            payload: segment.payload,
+                        },
+                        5,
+                        tls::record_total_length,
+                    );
+
+                    if let Some(record_bytes) = tls_reassembly.messages.first().cloned() {
+                        if let Some(tls_message) = tls::parse(&record_bytes) {
+                            let (_conversation_key, conversation) = runtime.conversations.tcp_data_mut(
+                                src_ip,
+                                transport.src_port,
+                                dst_ip,
+                                transport.dst_port,
+                                frame_no,
+                            );
+                            let flow = update_tls_conversation(conversation, &tls_message);
+                            apply_tls(tls_message, flow, summary, detail);
+                            detail.reassembly_state = Some(
+                                runtime
+                                    .reassembly
+                                    .make_state(&directional_key, &tls_reassembly.snapshot),
+                            );
+                            detail.decryption_state = runtime
+                                .decryption
+                                .inspect_tls(tls_config, &conversation.tls, "record");
+                        }
+                    } else if let Some(tls_message) = tls::parse(segment.payload) {
+                        let (_conversation_key, conversation) = runtime.conversations.tcp_data_mut(
+                            src_ip,
+                            transport.src_port,
+                            dst_ip,
+                            transport.dst_port,
+                            frame_no,
+                        );
+                        let flow = update_tls_conversation(conversation, &tls_message);
+                        apply_tls(tls_message, flow, summary, detail);
+                        detail.decryption_state = runtime
+                            .decryption
+                            .inspect_tls(tls_config, &conversation.tls, "record");
+                    } else if !segment.payload.is_empty() {
+                        if let Some(http2) = http2::parse(segment.payload) {
+                            apply_http2(http2, summary, detail);
+                        } else {
+                            detail.application = Some(ApplicationPacket::Unknown(UnknownPayload {
+                                preview: bytes_to_ascii(segment.payload),
+                            }));
+                            detail.reassembly_state = Some(
+                                runtime
+                                    .reassembly
+                                    .make_state(&directional_key, &http_reassembly.snapshot),
+                            );
+                        }
+                    }
+                }
+            }
+
+            if matches!(detail.application, Some(ApplicationPacket::Tls(_)))
+                && detail.decryption_state.is_none()
+            {
+                detail.decryption_state = Some(DecryptionState {
+                    attempted: false,
+                    secrets_loaded: false,
+                    status: "not_applicable".to_string(),
+                    protocol_hint: None,
+                    note: Some("当前 TLS 记录尚未建立可用的会话级解密状态".to_string()),
+                    keylog_path: tls_config.keylog_path.clone(),
                 });
-                apply_tls(tls, flow, summary, detail);
-            } else if let Some(http) = flow_tracker.observe_http(TcpFlowObservation {
-                src_ip: src_ip.to_string(),
-                dst_ip: dst_ip.to_string(),
-                src_port: transport.src_port,
-                dst_port: transport.dst_port,
-                seq: transport.seq,
-                fin: transport.flags.fin,
-                rst: transport.flags.rst,
-                payload: segment.payload,
-            }) {
-                apply_http(http, summary, detail);
-                detail
-                    .parse_notes
-                    .push("HTTP 通过 TCP 流重组识别".to_string());
-            } else if !segment.payload.is_empty() {
+            }
+
+            if detail.application.is_none() && !segment.payload.is_empty() {
                 detail.application = Some(ApplicationPacket::Unknown(UnknownPayload {
                     preview: bytes_to_ascii(segment.payload),
                 }));
@@ -245,11 +399,12 @@ fn parse_tcp(
 
 fn parse_udp(
     payload: &[u8],
+    frame_no: u64,
     src_ip: &str,
     dst_ip: &str,
     summary: &mut PacketSummary,
     detail: &mut PacketDetail,
-    flow_tracker: &mut TcpFlowTracker,
+    runtime: &mut ParserRuntime,
 ) {
     match udp::parse(payload) {
         Ok(datagram) => {
@@ -257,7 +412,7 @@ fn parse_udp(
             detail.transport = Some(TransportPacket::Udp(packet.clone()));
 
             if let Some(quic_message) =
-                try_parse_quic(datagram.payload, &packet, src_ip, dst_ip, flow_tracker)
+                try_parse_quic(datagram.payload, &packet, src_ip, dst_ip, frame_no, runtime)
             {
                 apply_quic(quic_message, summary, detail);
             } else if let Some(dns_message) = try_parse_dns(datagram.payload, &packet) {
@@ -316,7 +471,7 @@ fn apply_http(http: HttpMessage, summary: &mut PacketSummary, detail: &mut Packe
 
 fn apply_tls(
     tls: TlsMessage,
-    flow: stream::TlsFlowState,
+    flow: conversation::TlsConversationData,
     summary: &mut PacketSummary,
     detail: &mut PacketDetail,
 ) {
@@ -354,6 +509,18 @@ fn apply_tls(
     detail.application = Some(ApplicationPacket::Tls(tls));
 }
 
+fn apply_http2(http2: Http2Message, summary: &mut PacketSummary, detail: &mut PacketDetail) {
+    summary.protocol = PacketProtocol::Http2;
+    summary.info = if let Some(first_frame) = http2.frames.first() {
+        format!("HTTP/2 {} stream={}", first_frame.frame_type, first_frame.stream_id)
+    } else if http2.has_preface {
+        "HTTP/2 Preface".to_string()
+    } else {
+        "HTTP/2".to_string()
+    };
+    detail.application = Some(ApplicationPacket::Http2(http2));
+}
+
 fn apply_dns(dns_message: DnsMessage, summary: &mut PacketSummary, detail: &mut PacketDetail) {
     summary.protocol = PacketProtocol::Dns;
     summary.info = dns_info(&dns_message);
@@ -381,7 +548,8 @@ fn try_parse_quic(
     packet: &crate::model::packet::UdpDatagram,
     src_ip: &str,
     dst_ip: &str,
-    flow_tracker: &mut TcpFlowTracker,
+    frame_no: u64,
+    runtime: &mut ParserRuntime,
 ) -> Option<QuicMessage> {
     let looks_like_quic = matches!(packet.src_port, 443 | 784 | 853 | 8443)
         || matches!(packet.dst_port, 443 | 784 | 853 | 8443);
@@ -391,14 +559,35 @@ fn try_parse_quic(
 
     let quic = quic::parse(payload)?;
     if quic.packet_type == "Short"
-        && !flow_tracker.is_known_quic_flow(src_ip, packet.src_port, dst_ip, packet.dst_port)
+        && !runtime
+            .conversations
+            .is_known_quic_flow(src_ip, packet.src_port, dst_ip, packet.dst_port)
     {
         return None;
     }
 
     if quic.packet_type != "Short" {
-        flow_tracker.remember_quic_flow(src_ip, packet.src_port, dst_ip, packet.dst_port);
+        runtime
+            .conversations
+            .remember_quic_flow(src_ip, packet.src_port, dst_ip, packet.dst_port);
     }
+
+    let (_conversation_key, conversation) = runtime
+        .conversations
+        .udp_data_mut(src_ip, packet.src_port, dst_ip, packet.dst_port, frame_no);
+    if conversation.quic.version.is_none() {
+        conversation.quic.version = Some(quic.version.clone());
+    }
+    if conversation.quic.client_dcid.is_none() && !quic.dcid.is_empty() {
+        conversation.quic.client_dcid = Some(quic.dcid.clone());
+    }
+    if conversation.quic.server_scid.is_none() && !quic.scid.is_empty() {
+        conversation.quic.server_scid = Some(quic.scid.clone());
+    }
+    conversation
+        .quic
+        .packet_types_seen
+        .insert(quic.packet_type.clone());
 
     Some(quic)
 }
@@ -443,6 +632,314 @@ fn icmpv6_info(packet: &Icmpv6Packet) -> String {
         ),
         _ => format!("ICMPv6 {}", packet.description),
     }
+}
+
+fn hydrate_protocol_tree(detail: &mut PacketDetail) {
+    let mut layers = Vec::new();
+
+    if let Some(ethernet) = &detail.ethernet {
+        layers.push(ProtocolLayerNode {
+            name: "Ethernet II".to_string(),
+            filter_key: "eth".to_string(),
+            summary: format!("{} -> {}", ethernet.src_mac, ethernet.dst_mac),
+            fields: vec![
+                field("Source", "eth.src", &ethernet.src_mac),
+                field("Destination", "eth.dst", &ethernet.dst_mac),
+                field("Type", "eth.type", &format!("0x{:04x}", ethernet.ether_type)),
+            ],
+        });
+    }
+
+    if let Some(ipv4) = &detail.ipv4 {
+        layers.push(ProtocolLayerNode {
+            name: "IPv4".to_string(),
+            filter_key: "ip".to_string(),
+            summary: format!("{} -> {}", ipv4.src_ip, ipv4.dst_ip),
+            fields: vec![
+                field("Source", "ip.src", &ipv4.src_ip),
+                field("Destination", "ip.dst", &ipv4.dst_ip),
+                field("TTL", "ip.ttl", &ipv4.ttl.to_string()),
+                field("Protocol", "ip.proto", &ipv4.protocol.to_string()),
+                field("Total Length", "ip.len", &ipv4.total_length.to_string()),
+            ],
+        });
+    }
+
+    if let Some(ipv6) = &detail.ipv6 {
+        layers.push(ProtocolLayerNode {
+            name: "IPv6".to_string(),
+            filter_key: "ipv6".to_string(),
+            summary: format!("{} -> {}", ipv6.src_ip, ipv6.dst_ip),
+            fields: vec![
+                field("Source", "ipv6.src", &ipv6.src_ip),
+                field("Destination", "ipv6.dst", &ipv6.dst_ip),
+                field("Next Header", "ipv6.nxt", &ipv6.next_header.to_string()),
+                field("Hop Limit", "ipv6.hlim", &ipv6.hop_limit.to_string()),
+            ],
+        });
+    }
+
+    if let Some(arp) = &detail.arp {
+        layers.push(ProtocolLayerNode {
+            name: "ARP".to_string(),
+            filter_key: "arp".to_string(),
+            summary: format!("{} asks for {}", arp.src_ip, arp.dst_ip),
+            fields: vec![
+                field("Source IP", "arp.src.proto_ipv4", &arp.src_ip),
+                field("Target IP", "arp.dst.proto_ipv4", &arp.dst_ip),
+                field("Opcode", "arp.opcode", &arp.opcode.to_string()),
+            ],
+        });
+    }
+
+    if let Some(icmp) = &detail.icmp {
+        layers.push(ProtocolLayerNode {
+            name: "ICMP".to_string(),
+            filter_key: "icmp".to_string(),
+            summary: icmp.description.clone(),
+            fields: vec![
+                field("Type", "icmp.type", &icmp.icmp_type.to_string()),
+                field("Code", "icmp.code", &icmp.code.to_string()),
+            ],
+        });
+    }
+
+    if let Some(icmpv6) = &detail.icmpv6 {
+        layers.push(ProtocolLayerNode {
+            name: "ICMPv6".to_string(),
+            filter_key: "icmpv6".to_string(),
+            summary: icmpv6.description.clone(),
+            fields: {
+                let mut fields = vec![
+                    field("Type", "icmpv6.type", &icmpv6.icmp_type.to_string()),
+                    field("Code", "icmpv6.code", &icmpv6.code.to_string()),
+                ];
+                if let Some(target) = field_opt(
+                    "Target",
+                    "icmpv6.target_address",
+                    icmpv6.target_address.as_deref(),
+                ) {
+                    fields.push(target);
+                }
+                fields
+            },
+        });
+    }
+
+    if let Some(transport) = &detail.transport {
+        match transport {
+            TransportPacket::Tcp(tcp) => layers.push(ProtocolLayerNode {
+                name: "TCP".to_string(),
+                filter_key: "tcp".to_string(),
+                summary: format!("{} -> {}", tcp.src_port, tcp.dst_port),
+                fields: vec![
+                    field("Source Port", "tcp.srcport", &tcp.src_port.to_string()),
+                    field("Destination Port", "tcp.dstport", &tcp.dst_port.to_string()),
+                    field("Sequence Number", "tcp.seq", &tcp.seq.to_string()),
+                    field("Acknowledgement", "tcp.ack", &tcp.ack.to_string()),
+                    field(
+                        "Flags",
+                        "tcp.flags",
+                        &[
+                            (tcp.flags.fin, "FIN"),
+                            (tcp.flags.syn, "SYN"),
+                            (tcp.flags.rst, "RST"),
+                            (tcp.flags.psh, "PSH"),
+                            (tcp.flags.ack, "ACK"),
+                            (tcp.flags.urg, "URG"),
+                        ]
+                        .into_iter()
+                        .filter_map(|(enabled, name)| enabled.then_some(name))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    ),
+                ],
+            }),
+            TransportPacket::Udp(udp) => layers.push(ProtocolLayerNode {
+                name: "UDP".to_string(),
+                filter_key: "udp".to_string(),
+                summary: format!("{} -> {}", udp.src_port, udp.dst_port),
+                fields: vec![
+                    field("Source Port", "udp.srcport", &udp.src_port.to_string()),
+                    field("Destination Port", "udp.dstport", &udp.dst_port.to_string()),
+                    field("Length", "udp.length", &udp.length.to_string()),
+                ],
+            }),
+        }
+    }
+
+    if let Some(application) = &detail.application {
+        match application {
+            ApplicationPacket::Http(http) => {
+                layers.push(ProtocolLayerNode {
+                    name: "HTTP/1.x".to_string(),
+                    filter_key: "http".to_string(),
+                    summary: http.start_line.clone(),
+                    fields: vec![
+                        field("Start Line", "http.start_line", &http.start_line),
+                        field(
+                            "Content Length",
+                            "http.content_length",
+                            &http
+                                .content_length
+                                .map(|value| value.to_string())
+                                .unwrap_or_else(|| "—".to_string()),
+                        ),
+                        field(
+                            "Chunked",
+                            "http.transfer_encoding.chunked",
+                            if http.transfer_encoding_chunked { "true" } else { "false" },
+                        ),
+                    ],
+                });
+
+                if !http.body_preview.is_empty() {
+                    detail.artifacts.push(PacketArtifact {
+                        name: "HTTP Body Preview".to_string(),
+                        content_type: "text/plain".to_string(),
+                        value: http.body_preview.clone(),
+                    });
+                }
+            }
+            ApplicationPacket::Http2(http2) => {
+                layers.push(ProtocolLayerNode {
+                    name: "HTTP/2".to_string(),
+                    filter_key: "http2".to_string(),
+                    summary: if let Some(first_frame) = http2.frames.first() {
+                        format!("{} stream={}", first_frame.frame_type, first_frame.stream_id)
+                    } else {
+                        "Preface".to_string()
+                    },
+                    fields: http2
+                        .frames
+                        .iter()
+                        .enumerate()
+                        .map(|(index, frame)| FieldNode {
+                            name: format!("Frame {}", index + 1),
+                            filter_key: format!("http2.frame[{index}]"),
+                            value: frame.frame_type.clone(),
+                            children: vec![
+                                field("Type", "http2.type", &frame.frame_type),
+                                field("Length", "http2.length", &frame.length.to_string()),
+                                field("Flags", "http2.flags", &format!("0x{:02x}", frame.flags)),
+                                field("Stream", "http2.streamid", &frame.stream_id.to_string()),
+                            ],
+                        })
+                        .collect(),
+                });
+            }
+            ApplicationPacket::Tls(tls) => {
+                layers.push(ProtocolLayerNode {
+                    name: if detail.summary.protocol == PacketProtocol::Https {
+                        "TLS / HTTPS"
+                    } else {
+                        "TLS"
+                    }
+                    .to_string(),
+                    filter_key: "tls".to_string(),
+                    summary: detail.summary.info.clone(),
+                    fields: vec![
+                        field("Record Type", "tls.record.content_type", &tls.content_type),
+                        field("Version", "tls.record.version", &tls.version),
+                        field(
+                            "Handshake Type",
+                            "tls.handshake.type",
+                            tls.handshake_type.as_deref().unwrap_or("—"),
+                        ),
+                        field("SNI", "tls.handshake.extensions_server_name", tls.server_name.as_deref().unwrap_or("—")),
+                        field("ALPN", "tls.handshake.extensions_alpn", &tls.alpn_protocols.join(",")),
+                    ],
+                });
+            }
+            ApplicationPacket::Dns(dns) => {
+                layers.push(ProtocolLayerNode {
+                    name: "DNS".to_string(),
+                    filter_key: "dns".to_string(),
+                    summary: dns_info(dns),
+                    fields: vec![
+                        field("Transaction ID", "dns.id", &format!("0x{:04x}", dns.transaction_id)),
+                        field("Direction", "dns.flags.response", if dns.is_response { "response" } else { "query" }),
+                        field("Response Code", "dns.flags.rcode", &dns.rcode.to_string()),
+                    ],
+                });
+            }
+            ApplicationPacket::Quic(quic) => {
+                layers.push(ProtocolLayerNode {
+                    name: "QUIC".to_string(),
+                    filter_key: "quic".to_string(),
+                    summary: format!("{} {}", quic.packet_type, quic.version),
+                    fields: vec![
+                        field("Packet Type", "quic.packet_type", &quic.packet_type),
+                        field("Version", "quic.version", &quic.version),
+                        field("DCID", "quic.dcid", &quic.dcid),
+                        field("SCID", "quic.scid", &quic.scid),
+                    ],
+                });
+            }
+            ApplicationPacket::Unknown(unknown) => {
+                if !unknown.preview.is_empty() {
+                    detail.artifacts.push(PacketArtifact {
+                        name: "Payload Preview".to_string(),
+                        content_type: "text/plain".to_string(),
+                        value: unknown.preview.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    if let Some(reassembly_state) = &detail.reassembly_state {
+        detail.artifacts.push(PacketArtifact {
+            name: "Reassembly".to_string(),
+            content_type: "text/plain".to_string(),
+            value: format!(
+                "status={} buffered={} missing={} {}",
+                reassembly_state.status,
+                reassembly_state.buffered_bytes,
+                reassembly_state.missing_ranges,
+                reassembly_state.note.clone().unwrap_or_default()
+            ),
+        });
+    }
+
+    if let Some(decryption_state) = &detail.decryption_state {
+        detail.artifacts.push(PacketArtifact {
+            name: "Decryption".to_string(),
+            content_type: "text/plain".to_string(),
+            value: format!(
+                "status={} secrets_loaded={} {}",
+                decryption_state.status,
+                decryption_state.secrets_loaded,
+                decryption_state.note.clone().unwrap_or_default()
+            ),
+        });
+    }
+
+    detail.fields = layers
+        .iter()
+        .flat_map(|layer| {
+            std::iter::once(FieldNode {
+                name: layer.name.clone(),
+                filter_key: layer.filter_key.clone(),
+                value: layer.summary.clone(),
+                children: layer.fields.clone(),
+            })
+        })
+        .collect();
+    detail.layers = layers;
+}
+
+fn field(name: &str, filter_key: &str, value: &str) -> FieldNode {
+    FieldNode {
+        name: name.to_string(),
+        filter_key: filter_key.to_string(),
+        value: value.to_string(),
+        children: Vec::new(),
+    }
+}
+
+fn field_opt(name: &str, filter_key: &str, value: Option<&str>) -> Option<FieldNode> {
+    value.map(|value| field(name, filter_key, value))
 }
 
 fn bytes_to_hex(bytes: &[u8]) -> String {

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PacketProtocol {
     Ethernet,
@@ -8,6 +8,7 @@ pub enum PacketProtocol {
     Ipv4,
     Ipv6,
     Dns,
+    Http2,
     Icmp,
     Icmpv6,
     Https,
@@ -27,6 +28,7 @@ impl PacketProtocol {
             Self::Ipv4 => "ipv4",
             Self::Ipv6 => "ipv6",
             Self::Dns => "dns",
+            Self::Http2 => "http2",
             Self::Icmp => "icmp",
             Self::Icmpv6 => "icmpv6",
             Self::Https => "https",
@@ -73,9 +75,56 @@ pub struct PacketDetail {
     pub icmpv6: Option<Icmpv6Packet>,
     pub transport: Option<TransportPacket>,
     pub application: Option<ApplicationPacket>,
+    pub layers: Vec<ProtocolLayerNode>,
+    pub fields: Vec<FieldNode>,
+    pub artifacts: Vec<PacketArtifact>,
+    pub reassembly_state: Option<ReassemblyState>,
+    pub decryption_state: Option<DecryptionState>,
     pub raw: RawPacketData,
     pub parse_notes: Vec<String>,
     pub is_malformed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProtocolLayerNode {
+    pub name: String,
+    pub filter_key: String,
+    pub summary: String,
+    pub fields: Vec<FieldNode>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FieldNode {
+    pub name: String,
+    pub filter_key: String,
+    pub value: String,
+    pub children: Vec<FieldNode>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PacketArtifact {
+    pub name: String,
+    pub content_type: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReassemblyState {
+    pub status: String,
+    pub stream_key: String,
+    pub buffered_bytes: u32,
+    pub missing_ranges: u32,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecryptionState {
+    pub attempted: bool,
+    pub secrets_loaded: bool,
+    pub status: String,
+    pub protocol_hint: Option<String>,
+    pub note: Option<String>,
+    pub keylog_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -176,6 +225,7 @@ pub struct UdpDatagram {
 #[serde(rename_all = "snake_case")]
 pub enum ApplicationPacket {
     Http(HttpMessage),
+    Http2(Http2Message),
     Tls(TlsMessage),
     Dns(DnsMessage),
     Quic(QuicMessage),
@@ -194,7 +244,24 @@ pub struct HttpMessage {
     pub start_line: String,
     pub headers: Vec<HeaderField>,
     pub body_preview: String,
+    pub content_length: Option<u64>,
+    pub transfer_encoding_chunked: bool,
+    pub consumed_bytes: u32,
     pub raw_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Http2Frame {
+    pub frame_type: String,
+    pub length: u32,
+    pub flags: u8,
+    pub stream_id: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Http2Message {
+    pub has_preface: bool,
+    pub frames: Vec<Http2Frame>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

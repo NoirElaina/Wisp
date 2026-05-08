@@ -185,6 +185,24 @@ function dnsFlagsLabel(rcode: number) {
         <pre class="m-0 overflow-auto whitespace-pre-wrap px-4 py-4 font-mono text-xs leading-[1.55]">{{ packet.application.http.raw_text }}</pre>
       </section>
 
+      <section v-if="packet.application && 'http2' in packet.application" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
+        <header class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">HTTP/2</header>
+        <div class="grid gap-3 p-4">
+          <p class="m-0 text-xs text-slate-500">
+            {{ packet.application.http2.has_preface ? "已识别客户端 Preface。" : "已识别 HTTP/2 帧。" }}
+          </p>
+          <ul class="m-0 grid gap-2 p-0 list-none">
+            <li
+              v-for="(frame, index) in packet.application.http2.frames"
+              :key="`${frame.frame_type}:${frame.stream_id}:${index}`"
+              class="rounded-xl border border-slate-200/80 bg-slate-50/80 px-3 py-2 text-xs text-slate-700"
+            >
+              {{ frame.frame_type }} · stream {{ frame.stream_id }} · len {{ frame.length }} · flags 0x{{ frame.flags.toString(16).padStart(2, "0") }}
+            </li>
+          </ul>
+        </div>
+      </section>
+
       <section v-if="packet.application && 'dns' in packet.application" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
         <header class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">DNS</header>
         <div class="grid gap-4 p-4 md:grid-cols-2">
@@ -272,6 +290,58 @@ function dnsFlagsLabel(rcode: number) {
         </dl>
       </section>
 
+      <section v-if="packet.reassembly_state" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
+        <h3 class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">重组状态</h3>
+        <dl>
+          <div>
+            <dt>状态</dt>
+            <dd>{{ packet.reassembly_state.status }}</dd>
+          </div>
+          <div>
+            <dt>流标识</dt>
+            <dd>{{ packet.reassembly_state.stream_key }}</dd>
+          </div>
+          <div>
+            <dt>缓冲字节</dt>
+            <dd>{{ packet.reassembly_state.buffered_bytes }}</dd>
+          </div>
+          <div>
+            <dt>缺失区间</dt>
+            <dd>{{ packet.reassembly_state.missing_ranges }}</dd>
+          </div>
+          <div>
+            <dt>备注</dt>
+            <dd>{{ packet.reassembly_state.note ?? "—" }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section v-if="packet.decryption_state" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
+        <h3 class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">解密状态</h3>
+        <dl>
+          <div>
+            <dt>状态</dt>
+            <dd>{{ packet.decryption_state.status }}</dd>
+          </div>
+          <div>
+            <dt>Secrets 已加载</dt>
+            <dd>{{ packet.decryption_state.secrets_loaded ? "是" : "否" }}</dd>
+          </div>
+          <div>
+            <dt>协议提示</dt>
+            <dd>{{ packet.decryption_state.protocol_hint ?? "—" }}</dd>
+          </div>
+          <div>
+            <dt>Keylog 路径</dt>
+            <dd>{{ packet.decryption_state.keylog_path ?? "—" }}</dd>
+          </div>
+          <div>
+            <dt>备注</dt>
+            <dd>{{ packet.decryption_state.note ?? "—" }}</dd>
+          </div>
+        </dl>
+      </section>
+
       <section v-if="packet.application && 'quic' in packet.application" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
         <h3 class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">QUIC</h3>
         <dl>
@@ -292,6 +362,22 @@ function dnsFlagsLabel(rcode: number) {
             <dd>{{ packet.application.quic.scid || "—" }}</dd>
           </div>
         </dl>
+      </section>
+
+      <section v-if="packet.artifacts.length > 0" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">
+        <header class="m-0 border-b border-slate-200/80 px-4 py-3 text-[13px] font-semibold text-slate-950">分析产物</header>
+        <div class="grid gap-3 p-4">
+          <article
+            v-for="artifact in packet.artifacts"
+            :key="`${artifact.name}:${artifact.content_type}`"
+            class="rounded-xl border border-slate-200/80 bg-slate-50/80"
+          >
+            <header class="border-b border-slate-200/80 px-3 py-2 text-xs font-semibold text-slate-700">
+              {{ artifact.name }}
+            </header>
+            <pre class="m-0 overflow-auto whitespace-pre-wrap px-3 py-3 font-mono text-xs leading-[1.55]">{{ artifact.value }}</pre>
+          </article>
+        </div>
       </section>
 
       <section v-if="packet.parse_notes.length > 0" class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-sm">

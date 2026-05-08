@@ -25,6 +25,8 @@ export interface CaptureRuntimeState {
 export interface TlsDecryptionConfig {
   enabled: boolean
   keylog_path: string | null
+  reload_on_change: boolean
+  strict_secret_match: boolean
 }
 
 export interface StartCaptureRequest {

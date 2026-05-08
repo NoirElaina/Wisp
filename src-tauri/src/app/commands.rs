@@ -118,6 +118,7 @@ pub fn start_capture(
         if let Err(err) = worker::spawn(
             app.clone(),
             state.store.clone(),
+            state.tls_decryption.clone(),
             &mut capture,
             session.clone(),
             req.interface_name.clone(),

@@ -70,6 +70,25 @@ pub fn parse(bytes: &[u8]) -> Option<TlsMessage> {
     Some(message)
 }
 
+pub fn record_total_length(bytes: &[u8]) -> Option<usize> {
+    if bytes.len() < 5 {
+        return None;
+    }
+
+    let content_type = bytes[0];
+    if !matches!(content_type, 20..=24) {
+        return None;
+    }
+
+    let version_raw = be_u16(&bytes[1..3])?;
+    if version_raw >> 8 != 0x03 {
+        return None;
+    }
+
+    let record_length = be_u16(&bytes[3..5])? as usize;
+    Some(5usize.saturating_add(record_length))
+}
+
 fn parse_client_hello(body: &[u8]) -> Option<(Option<String>, Vec<String>, Option<String>, Option<String>)> {
     if body.len() < 34 {
         return None;

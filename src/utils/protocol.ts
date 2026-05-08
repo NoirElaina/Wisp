@@ -1,5 +1,6 @@
 export const PROTOCOL_OPTIONS = [
   "http",
+  "http2",
   "https",
   "tls",
   "dns",

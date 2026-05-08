@@ -16,6 +16,8 @@ impl AppState {
             tls_decryption: Arc::new(Mutex::new(TlsDecryptionConfig {
                 enabled: false,
                 keylog_path: None,
+                reload_on_change: false,
+                strict_secret_match: true,
             })),
         }
     }
